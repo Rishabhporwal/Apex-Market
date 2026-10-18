@@ -1,0 +1,6 @@
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+data/*.duckdb
+data/*.log
+.env*
