@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { marketDataService } from '@/services/marketDataService';
 import { technicalService } from '@/services/technicalService';
+import { proxyToGateway } from '@/services/gatewayProxy';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
+  // Microservice mesh first (when configured); local implementation otherwise
+  const proxied = await proxyToGateway(req, '/api/technical');
+  if (proxied) return proxied;
+
   try {
     const { searchParams } = new URL(req.url);
     const symbol = searchParams.get('symbol') || 'NVDA';

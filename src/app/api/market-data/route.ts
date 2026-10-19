@@ -1,9 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { marketDataService } from '@/services/marketDataService';
+import { proxyToGateway } from '@/services/gatewayProxy';
 
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
+  // Microservice mesh first (when configured) for the types the gateway serves
+  const { searchParams: probe } = new URL(req.url);
+  const probeType = probe.get('type') || 'quote';
+  const probeSymbol = probe.get('symbol') || 'NVDA';
+  let gatewayPath: string | null = null;
+  if (probeType === 'quote') gatewayPath = `/api/quote/${encodeURIComponent(probeSymbol)}`;
+  else if (probeType === 'candles') gatewayPath = `/api/candles/${encodeURIComponent(probeSymbol)}`;
+  else if (probeType === 'indices') gatewayPath = '/api/indices';
+  if (gatewayPath) {
+    const proxied = await proxyToGateway(req, gatewayPath);
+    if (proxied) return proxied;
+  }
+
   try {
     const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') || 'quote';

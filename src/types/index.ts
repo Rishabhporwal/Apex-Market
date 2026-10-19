@@ -166,6 +166,13 @@ export interface ScreenerFilter {
   pricePerformance?: 'GAINER_TODAY' | 'LOSER_TODAY' | 'NEAR_52W_HIGH' | 'NEAR_52W_LOW' | 'ALL';
   sortBy?: 'marketCap' | 'changePercent' | 'peRatio' | 'sentimentScore' | 'volume';
   sortOrder?: 'asc' | 'desc';
+  // --- EDGAR warehouse filters (new, optional; legacy fields above kept for compat) ---
+  maxPe?: number;
+  minRevenueGrowth?: number;
+  minNetMargin?: number;
+  minRoe?: number;
+  searchQuery?: string;
+  limit?: number;
 }
 
 export interface ScreenerStockResult {
@@ -182,6 +189,15 @@ export interface ScreenerStockResult {
   sentimentScore: number;
   sentimentLabel: string;
   volume: number;
+  // --- EDGAR warehouse fundamentals (new, optional) ---
+  revenueGrowthYoY?: number;
+  netMargin?: number;
+  roe?: number;
+  revenue?: number;
+  netIncome?: number;
+  epsDiluted?: number;
+  fiscalYear?: string;
+  fiscalPeriod?: string;
 }
 
 export interface TechnicalIndicatorData {

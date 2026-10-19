@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Navbar } from '@/components/layout/Navbar';
-import { FinalPredictionCard } from '@/components/research/FinalPredictionCard';
+import { VerdictView } from '@/components/verdict/VerdictView';
 import { StockChart } from '@/components/charts/StockChart';
 import { SentimentPredictor } from '@/components/sentiment/SentimentPredictor';
 import { FinancialsPanel } from '@/components/research/FinancialsPanel';
@@ -82,12 +82,7 @@ export default function Home() {
         )}
 
         {activeTab === 'prediction' && (
-          <FinalPredictionCard
-            symbol={selectedSymbol}
-            onOpenTrade={(sym, type) => {
-              setActiveTab('portfolio');
-            }}
-          />
+          <VerdictView symbol={selectedSymbol} />
         )}
 
         {activeTab === 'chart' && (

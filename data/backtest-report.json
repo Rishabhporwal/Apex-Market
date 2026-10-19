@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-10-18T11:45:17.335Z",
+  "config": {
+    "years": 3,
+    "horizonDays": 90,
+    "universe": 120,
+    "note": "Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound."
+  },
+  "totals": {
+    "signals": 3660,
+    "tickersTested": 120,
+    "tickersSkipped": 0
+  },
+  "actions": {
+    "BUY": {
+      "n": 28,
+      "avgForwardReturn": 1.28,
+      "median": -0.03,
+      "winRate": 46.4,
+      "spyAvgSameWindows": 1.3
+    },
+    "HOLD": {
+      "n": 3624,
+      "avgForwardReturn": 4.46,
+      "median": 2.7,
+      "winRate": 58.1,
+      "spyAvgSameWindows": 4.49
+    },
+    "SELL": {
+      "n": 8,
+      "avgForwardReturn": 1.85,
+      "median": -4.45,
+      "winRate": 37.5,
+      "spyAvgSameWindows": -2.65
+    }
+  },
+  "perTickerSample": [
+    {
+      "ticker": "AMZN",
+      "signals": 31
+    },
+    {
+      "ticker": "WMT",
+      "signals": 31
+    },
+    {
+      "ticker": "UNH",
+      "signals": 31
+    },
+    {
+      "ticker": "AAPL",
+      "signals": 31
+    },
+    {
+      "ticker": "MCK",
+      "signals": 31
+    },
+    {
+      "ticker": "GOOGL",
+      "signals": 31
+    },
+    {
+      "ticker": "CVS",
+      "signals": 31
+    },
+    {
+      "ticker": "MSFT",
+      "signals": 31
+    },
+    {
+      "ticker": "COR",
+      "signals": 31
+    },
+    {
+      "ticker": "COST",
+      "signals": 31
+    },
+    {
+      "ticker": "CI",
+      "signals": 31
+    },
+    {
+      "ticker": "CAH",
+      "signals": 31
+    },
+    {
+      "ticker": "BRK-B",
+      "signals": 31
+    },
+    {
+      "ticker": "NVDA",
+      "signals": 31
+    },
+    {
+      "ticker": "META",
+      "signals": 31
+    },
+    {
+      "ticker": "ELV",
+      "signals": 31
+    },
+    {
+      "ticker": "F",
+      "signals": 31
+    },
+    {
+      "ticker": "CVX",
+      "signals": 31
+    },
+    {
+      "ticker": "JPM",
+      "signals": 31
+    },
+    {
+      "ticker": "CNC",
+      "signals": 31
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import YahooFinance from 'yahoo-finance2';
 import { StockQuote, Candle } from '@/types';
+import { quoteCache, candlesCache } from '@/services/cacheService';
 
 class MarketDataService {
   private yf: InstanceType<typeof YahooFinance>;
@@ -9,37 +10,39 @@ class MarketDataService {
   }
 
   /**
-   * Get single stock quote
+   * Get single stock quote (60s TTL cache + stale-on-error fallback)
    */
   async getQuote(symbol: string): Promise<StockQuote> {
     const cleanSymbol = symbol.trim().toUpperCase();
-    try {
-      const q = await this.yf.quote(cleanSymbol);
-      return {
-        symbol: cleanSymbol,
-        name: q.shortName || q.longName || cleanSymbol,
-        price: q.regularMarketPrice || 0,
-        change: q.regularMarketChange || 0,
-        changePercent: q.regularMarketChangePercent || 0,
-        open: q.regularMarketOpen || q.regularMarketPrice || 0,
-        high: q.regularMarketDayHigh || q.regularMarketPrice || 0,
-        low: q.regularMarketDayLow || q.regularMarketPrice || 0,
-        previousClose: q.regularMarketPreviousClose || q.regularMarketPrice || 0,
-        volume: q.regularMarketVolume || 0,
-        avgVolume: q.averageDailyVolume3Month || q.regularMarketVolume || 0,
-        marketCap: q.marketCap || 0,
-        peRatio: q.trailingPE || undefined,
-        week52High: q.fiftyTwoWeekHigh || 0,
-        week52Low: q.fiftyTwoWeekLow || 0,
-        currency: q.currency || 'USD',
-        exchange: q.exchange || 'NASDAQ',
-        marketState: (q.marketState as 'PRE' | 'REGULAR' | 'POST' | 'CLOSED') || 'CLOSED',
-        timestamp: Date.now(),
-      };
-    } catch (error) {
-      console.error(`Error fetching quote for ${symbol}:`, error);
-      throw new Error(`Unable to fetch quote for ${symbol}`);
-    }
+    return quoteCache.wrap(cleanSymbol, async () => {
+      try {
+        const q = await this.yf.quote(cleanSymbol);
+        return {
+          symbol: cleanSymbol,
+          name: q.shortName || q.longName || cleanSymbol,
+          price: q.regularMarketPrice || 0,
+          change: q.regularMarketChange || 0,
+          changePercent: q.regularMarketChangePercent || 0,
+          open: q.regularMarketOpen || q.regularMarketPrice || 0,
+          high: q.regularMarketDayHigh || q.regularMarketPrice || 0,
+          low: q.regularMarketDayLow || q.regularMarketPrice || 0,
+          previousClose: q.regularMarketPreviousClose || q.regularMarketPrice || 0,
+          volume: q.regularMarketVolume || 0,
+          avgVolume: q.averageDailyVolume3Month || q.regularMarketVolume || 0,
+          marketCap: q.marketCap || 0,
+          peRatio: q.trailingPE || undefined,
+          week52High: q.fiftyTwoWeekHigh || 0,
+          week52Low: q.fiftyTwoWeekLow || 0,
+          currency: q.currency || 'USD',
+          exchange: q.exchange || 'NASDAQ',
+          marketState: (q.marketState as 'PRE' | 'REGULAR' | 'POST' | 'CLOSED') || 'CLOSED',
+          timestamp: Date.now(),
+        };
+      } catch (error) {
+        console.error(`Error fetching quote for ${symbol}:`, error);
+        throw new Error(`Unable to fetch quote for ${symbol}`);
+      }
+    });
   }
 
   /**
@@ -63,6 +66,17 @@ class MarketDataService {
     interval: '1m' | '5m' | '15m' | '1h' | '1d' | '1wk' = '1d'
   ): Promise<Candle[]> {
     const cleanSymbol = symbol.trim().toUpperCase();
+    // 10min TTL cache keyed by symbol+timeframe+interval (daily bars barely move intraday)
+    return candlesCache.wrap(`${cleanSymbol}|${timeframe}|${interval}`, async () => {
+      return this.fetchCandlesUncached(cleanSymbol, timeframe, interval);
+    });
+  }
+
+  private async fetchCandlesUncached(
+    cleanSymbol: string,
+    timeframe: '1d' | '5d' | '1mo' | '6mo' | '1y' | '2y' | '5y',
+    interval: '1m' | '5m' | '15m' | '1h' | '1d' | '1wk'
+  ): Promise<Candle[]> {
     const now = new Date();
     let period1 = new Date();
 
@@ -117,7 +131,7 @@ class MarketDataService {
           };
         });
     } catch (error) {
-      console.error(`Error fetching historical candles for ${symbol}:`, error);
+      console.error(`Error fetching historical candles for ${cleanSymbol}:`, error);
       return [];
     }
   }

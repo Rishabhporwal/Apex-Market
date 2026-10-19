@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+data/*.duckdb
+data/*.duckdb.wal
+data/*.log
+data/backtest-report.json
+data/latest-prices.json
+data/bt-snap-*
+data/rp-snap-*
+services/.run
+*.md
+!README-DATA.md
+.env*

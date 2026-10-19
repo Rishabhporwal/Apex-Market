@@ -1,0 +1,26 @@
+# Next.js web app (pure BFF/UI in the microservice topology).
+FROM node:24-bookworm-slim AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+# Build needs the API base at build time only for public env; runtime base is env-driven.
+ARG NEXT_PUBLIC_API_BASE=http://localhost:8080
+ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE}
+RUN npm run build
+
+FROM node:24-bookworm-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000
+COPY --from=builder /app/package.json /app/package-lock.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/.next ./.next
+# The project has no static assets dir; Next expects ./public to exist.
+RUN mkdir -p ./public
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
+# DuckDB native binding is required by serverExternalPackages even if unused at runtime
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+EXPOSE 3000
+CMD ["npx", "next", "start", "-p", "3000"]

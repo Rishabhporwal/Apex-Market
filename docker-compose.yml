@@ -1,0 +1,251 @@
+# ApexMarket microservices — one command, seven services + web.
+#
+#   docker compose up -d --build      # start everything (web :3000, gateway :8080)
+#   docker compose ps                 # health matrix
+#   docker compose logs -f gateway
+#   docker compose --profile ingest run --rm ingest-edgar      # refresh fundamentals (stop edgar first!)
+#   docker compose --profile refresh run --rm refresh-prices   # refresh live prices
+#   docker compose down               # stop everything
+#
+# DuckDB lock etiquette (see ARCHITECTURE.md): each file has exactly one writer.
+#   - svc-edgar opens warehouse.duckdb READ_ONLY (many readers are safe).
+#   - ingest writes the warehouse → run it while edgar is stopped:
+#       docker compose stop edgar
+#       docker compose --profile ingest run --rm ingest-edgar
+#       docker compose start edgar
+#   - refresh-prices writes prices.duckdb (market-data only reads it read-only → safe anytime).
+#
+# Cross-container discovery: every service registers with SERVICE_HOST=<its
+# container name> so registry URLs resolve via Docker DNS; REGISTRY_URL points
+# at the registry service. SERVICES_JSON stays as static fallback.
+# Only the edge is exposed to the host: gateway :8080 and web :3000.
+#
+# The OpenRouter key is injected from .env.local (never baked into images).
+
+name: apexmarket
+
+x-svc-defaults: &svc-defaults
+  restart: unless-stopped
+  env_file:
+    - .env.local
+  networks: [apexnet]
+
+x-svc-health: &svc-health
+  interval: 10s
+  timeout: 3s
+  retries: 5
+  start_period: 5s
+  test: ["CMD", "node", "services/shared/healthcheck.mjs"]
+
+services:
+  # ---- discovery -------------------------------------------------------------
+  registry:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: registry } }
+    container_name: apex-registry
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8010
+      - SERVICE_HOST=registry
+      - REGISTRY_URL=http://registry:8010
+    healthcheck: *svc-health
+
+  # ---- data plane ------------------------------------------------------------
+  market-data:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: market-data } }
+    container_name: apex-market-data
+    volumes:
+      - ./data:/app/data:ro          # prices.duckdb + latest-prices.json (read-only view)
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8001
+      - SERVICE_HOST=market-data
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  edgar:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: edgar } }
+    container_name: apex-edgar
+    volumes:
+      - ./data:/app/data:ro          # warehouse.duckdb READ_ONLY — ingest is a one-shot job
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8002
+      - SERVICE_HOST=edgar
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+    healthcheck:
+      <<: *svc-health
+      start_period: 15s
+
+  news:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: news } }
+    container_name: apex-news
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8004
+      - SERVICE_HOST=news
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  research:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: research } }
+    container_name: apex-research
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8006
+      - SERVICE_HOST=research
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"market-data":"http://market-data:8001","registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+      market-data: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  analytics:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: analytics } }
+    container_name: apex-analytics
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8007
+      - SERVICE_HOST=analytics
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"market-data":"http://market-data:8001","news":"http://news:8004","research":"http://research:8006","registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+      market-data: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  # ---- compute plane ---------------------------------------------------------
+  verdict:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: verdict } }
+    container_name: apex-verdict
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8003
+      - SERVICE_HOST=verdict
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"market-data":"http://market-data:8001","edgar":"http://edgar:8002","news":"http://news:8004","llm":"http://llm:8005","research":"http://research:8006","analytics":"http://analytics:8007","registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+      market-data: { condition: service_healthy }
+      edgar: { condition: service_healthy }
+      news: { condition: service_healthy }
+      research: { condition: service_healthy }
+      analytics: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  llm:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: llm } }
+    container_name: apex-llm
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8005
+      - SERVICE_HOST=llm
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"market-data":"http://market-data:8001","news":"http://news:8004","research":"http://research:8006","registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+      market-data: { condition: service_healthy }
+      news: { condition: service_healthy }
+      research: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  # ---- edge ------------------------------------------------------------------
+  gateway:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: gateway } }
+    container_name: apex-gateway
+    ports:
+      - "8080:8080"                  # the only API entrypoint
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8080
+      - SERVICE_HOST=gateway
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"market-data":"http://market-data:8001","edgar":"http://edgar:8002","verdict":"http://verdict:8003","news":"http://news:8004","llm":"http://llm:8005","research":"http://research:8006","analytics":"http://analytics:8007","registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+      market-data: { condition: service_healthy }
+      edgar: { condition: service_healthy }
+      verdict: { condition: service_healthy }
+      news: { condition: service_healthy }
+      llm: { condition: service_healthy }
+      research: { condition: service_healthy }
+      analytics: { condition: service_healthy }
+    healthcheck: *svc-health
+
+  # ---- UI --------------------------------------------------------------------
+  web:
+    <<: *svc-defaults
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    container_name: apex-web
+    ports:
+      - "3000:3000"                  # user-facing UI
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - API_GATEWAY_URL=http://gateway:8080
+    depends_on:
+      gateway: { condition: service_healthy }
+    healthcheck:
+      <<: *svc-health
+      start_period: 40s
+
+  # ---- one-shot jobs ---------------------------------------------------------
+  # docker compose stop edgar && docker compose --profile ingest run --rm ingest-edgar && docker compose start edgar
+  ingest-edgar:
+    profiles: ["ingest"]
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: "" } }
+    entrypoint: ["node", "scripts/ingest-edgar.mjs", "--all"]
+    volumes:
+      - ./data:/app/data             # WRITE access — edgar must be stopped
+    networks: [apexnet]
+    env_file:
+      - .env.local
+
+  refresh-prices:
+    profiles: ["refresh"]
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: "" } }
+    entrypoint: ["node", "scripts/refresh-prices.mjs"]
+    volumes:
+      - ./data:/app/data
+    networks: [apexnet]
+
+  backtest:
+    profiles: ["backtest"]
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: "" } }
+    entrypoint: ["node", "scripts/backtest-verdicts.mjs", "--years=3", "--horizon=90", "--top=120"]
+    volumes:
+      - ./data:/app/data
+    networks: [apexnet]
+
+networks:
+  apexnet:
+    driver: bridge

@@ -96,6 +96,7 @@ async function getSp500Universe() {
       cik,
       ticker: cells[col('Symbol')].trim().toUpperCase(),
       name: cells[col('Security')].trim(),
+      sic: null,
       sector: cells[col('GICS Sector')]?.trim() || null,
     });
   }
@@ -109,6 +110,7 @@ async function getAllUniverse() {
     cik: Number(e.cik_str),
     ticker: String(e.ticker).toUpperCase(),
     name: e.title,
+    sic: null,
     sector: null, // company_tickers.json carries no sector/SIC
   }));
 }
@@ -130,6 +132,10 @@ const GROSS_PROFIT_TAGS = ['GrossProfit'];
 const OPERATING_INCOME_TAGS = ['OperatingIncomeLoss'];
 const DEBT_TAGS = ['LongTermDebtNoncurrent', 'ShortTermBorrowings'];
 const DEBT_FALLBACK_TAGS = ['LongTermDebt', 'DebtLongtermAndShorttermCombinedAmount'];
+const DIVIDEND_TAGS = [
+  'CommonStockDividendsPerShareDeclared',
+  'CommonStockDividendsPerShareCashPaidAmount',
+];
 const SHARES_TAGS = ['EntityCommonStockSharesOutstanding']; // dei taxonomy
 
 function isAnnual(v) {
@@ -147,7 +153,8 @@ function collectAnnual(facts, taxonomy, tags) {
   if (!taxonomyFacts) return [];
   const out = [];
   for (const tag of tags) {
-    const units = taxonomyFacts[tag]?.units?.USD;
+    const entry = taxonomyFacts[tag];
+    const units = entry?.units?.USD || entry?.units?.['USD/shares'];
     if (!units) continue;
     for (const v of units) {
       if (!isAnnual(v)) continue;
@@ -184,7 +191,26 @@ function pickLatestShares(facts) {
   return best;
 }
 
+const ALL_TAG_FAMILIES = [
+  REVENUE_TAGS, NET_INCOME_TAGS, EPS_TAGS, ASSETS_TAGS, EQUITY_TAGS,
+  GROSS_PROFIT_TAGS, OPERATING_INCOME_TAGS, DEBT_TAGS, DEBT_FALLBACK_TAGS,
+  DIVIDEND_TAGS,
+];
+
 async function extractCompanyMetrics(companyFacts) {
+  // every annual value of the tags we care about -> facts table (enables YoY)
+  const factRows = ALL_TAG_FAMILIES.flatMap((tags) =>
+    collectAnnual(companyFacts, 'us-gaap', tags)
+  );
+  // dedupe (same val can appear under multiple tags)
+  const seen = new Set();
+  const uniqueFactRows = factRows.filter((r) => {
+    const key = `${r.tag}|${r.end.toISOString()}|${r.val}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
   const rev = pickLatestAnnual(companyFacts, 'us-gaap', REVENUE_TAGS);
   const ni = pickLatestAnnual(companyFacts, 'us-gaap', NET_INCOME_TAGS);
   const eps = pickLatestAnnual(companyFacts, 'us-gaap', EPS_TAGS);
@@ -200,6 +226,7 @@ async function extractCompanyMetrics(companyFacts) {
     const fb = pickLatestAnnual(companyFacts, 'us-gaap', DEBT_FALLBACK_TAGS);
     debt = fb ? fb.val : null;
   }
+  const dps = pickLatestAnnual(companyFacts, 'us-gaap', DIVIDEND_TAGS);
   const shares = pickLatestShares(companyFacts);
 
   const annuals = [rev, ni, eps, assets, equity, gp, oi].filter(Boolean);
@@ -220,6 +247,8 @@ async function extractCompanyMetrics(companyFacts) {
     fiscal_year: annuals.find((v) => v.end.getTime() === latest.getTime())?.fy ?? null,
     fiscal_period: annuals.find((v) => v.end.getTime() === latest.getTime())?.fp ?? null,
     shares_outstanding: shares?.val ?? null,
+    dividends_per_share: dps?.val ?? null,
+    fact_rows: uniqueFactRows,
   };
 }
 
@@ -241,7 +270,7 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS facts (
       cik BIGINT,
       tag VARCHAR,
-      end DATE,
+      "end" DATE,
       val DOUBLE,
       fy VARCHAR,
       fp VARCHAR,
@@ -262,7 +291,8 @@ async function initDb() {
       operating_income DOUBLE,
       fiscal_year VARCHAR,
       fiscal_period VARCHAR,
-      shares_outstanding DOUBLE
+      shares_outstanding DOUBLE,
+      dividends_per_share DOUBLE
     );
   `);
   return { instance, conn };
@@ -282,13 +312,25 @@ async function main() {
     fs.appendFileSync(ERROR_LOG, `${new Date().toISOString()}\t${ticker}\t${cik}\t${msg}\n`);
   };
 
-  const insertCompany = await conn.createPreparedStatement(
-    'INSERT OR REPLACE INTO companies VALUES (?, ?, ?, ?, ?)'
-  );
-  const insertMetric = await conn.createPreparedStatement(
-    `INSERT OR REPLACE INTO metrics_latest
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  );
+  const insertCompany = (c) =>
+    conn.run('INSERT OR REPLACE INTO companies VALUES (?, ?, ?, ?, ?)', [
+      BigInt(c.cik), c.ticker, c.name, c.sic, c.sector,
+    ]);
+  const insertMetricRow = (cik, m) =>
+    conn.run(
+      `INSERT OR REPLACE INTO metrics_latest VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        BigInt(cik), m.revenue, m.net_income, m.eps_diluted,
+        m.total_assets, m.total_debt, m.stockholders_equity,
+        m.gross_profit, m.operating_income, m.fiscal_year, m.fiscal_period,
+        m.shares_outstanding, m.dividends_per_share,
+      ]
+    );
+  const insertFactRow = (cik, f) =>
+    conn.run(
+      'INSERT INTO facts VALUES (?, ?, CAST(? AS DATE), ?, ?, ?, ?, ?)',
+      [BigInt(cik), f.tag, f.end.toISOString().slice(0, 10), f.val, f.fy, f.fp, f.form, f.frame]
+    );
 
   let ok = 0, failed = 0, noFacts = 0;
   const t0 = Date.now();
@@ -298,30 +340,17 @@ async function main() {
     try {
       const facts = await fetchJson(COMPANYFACTS_URL(c.cik));
       const m = await extractCompanyMetrics(facts.facts || {});
-      insertCompany.bindVarchar(0, String(c.cik));
-      insertCompany.bindVarchar(1, c.ticker);
-      insertCompany.bindVarchar(2, c.name);
-      insertCompany.bindNull(3); // sic not available from these endpoints
-      insertCompany.bindVarchar(4, c.sector);
-      await conn.run(insertCompany);
+      await insertCompany(c);
 
       if (!m.revenue && !m.net_income) {
         noFacts++;
         logErr(c.ticker, c.cik, 'no annual us-gaap facts found');
       } else {
-        const vals = [
-          String(c.cik), m.revenue, m.net_income, m.eps_diluted,
-          m.total_assets, m.total_debt, m.stockholders_equity,
-          m.gross_profit, m.operating_income, m.fiscal_year, m.fiscal_period,
-          m.shares_outstanding,
-        ];
-        for (let j = 0; j < vals.length; j++) {
-          const v = vals[j];
-          if (v === null || v === undefined) insertMetric.bindNull(j);
-          else if (typeof v === 'string') insertMetric.bindVarchar(j, v);
-          else insertMetric.bindDouble(j, v);
-        }
-        await conn.run(insertMetric);
+        await insertMetricRow(c.cik, m);
+      }
+      await conn.run('DELETE FROM facts WHERE cik = ?', [BigInt(c.cik)]);
+      for (const f of m.fact_rows) {
+        await insertFactRow(c.cik, f);
       }
       ok++;
     } catch (err) {
@@ -337,8 +366,8 @@ async function main() {
     }
   }
 
-  await conn.close();
-  await instance.close();
+  conn.closeSync();
+  await instance.closeSync?.();
   console.log(`Done. ingested=${ok} noFacts=${noFacts} failed=${failed} in ${((Date.now() - t0) / 60000).toFixed(1)} min`);
   console.log(`Errors logged to ${ERROR_LOG}`);
   process.exit(0);

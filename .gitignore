@@ -4,3 +4,6 @@ tsconfig.tsbuildinfo
 data/*.duckdb
 data/*.log
 .env*
+
+# services runtime state
+services/.run/

@@ -27,12 +27,22 @@ class LLMService {
   async runDeepAnalysis(
     data: LLMAnalysisRequest,
     customKey?: string,
-    preferredProvider: 'gemini' | 'openai' | 'claude' | 'auto' = 'auto'
+    preferredProvider: 'gemini' | 'openai' | 'claude' | 'openrouter' | 'auto' = 'auto'
   ): Promise<LLMAnalysisResponse> {
     const geminiKey = customKey || process.env.GEMINI_API_KEY;
     const openaiKey = process.env.OPENAI_API_KEY;
+    const openRouterKey = customKey || process.env.OPENROUTER_API_KEY;
 
-    // 1. Try Google Gemini if key available
+    // 1. Try OpenRouter (first-class choice — unified access to Claude, GPT-4o, Gemini, etc.)
+    if ((preferredProvider === 'openrouter' || preferredProvider === 'auto') && openRouterKey) {
+      try {
+        return await this.callOpenRouter(data, openRouterKey);
+      } catch (err) {
+        console.warn('OpenRouter API call failed, falling back to other providers:', err);
+      }
+    }
+
+    // 2. Try Google Gemini if key available
     if ((preferredProvider === 'gemini' || preferredProvider === 'auto') && geminiKey) {
       try {
         return await this.callGemini(data, geminiKey);
@@ -41,7 +51,7 @@ class LLMService {
       }
     }
 
-    // 2. Try OpenAI if key available
+    // 3. Try OpenAI if key available
     if ((preferredProvider === 'openai' || preferredProvider === 'auto') && openaiKey) {
       try {
         return await this.callOpenAI(data, openaiKey);
@@ -100,7 +110,62 @@ class LLMService {
   }
 
   /**
-   * Call OpenAI API (GPT-4o)
+   * Call OpenRouter API — unified access to Claude, GPT-4o, Gemini, Llama, etc.
+   * OpenRouter is OpenAI-compatible; just different base URL + optional model selection.
+   */
+  private async callOpenRouter(data: LLMAnalysisRequest, apiKey: string): Promise<LLMAnalysisResponse> {
+    const prompt = this.buildPrompt(data);
+    const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v3.2';
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': process.env.HOME || 'https://researchplatform.dev',
+        'X-Title': 'Research Platform',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: 'You are an institutional Wall Street research director and quantitative hedge fund strategist. Provide data-driven analysis, not hype.' },
+          { role: 'user', content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 1500,
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`OpenRouter API error: ${res.status} ${res.statusText}`);
+    }
+
+    const json = await res.json();
+    const text = json.choices?.[0]?.message?.content || '';
+
+    // Parse the model label for display
+    const modelName = json.model || model;
+    // Map OpenRouter model slug → readable name
+    const modelLabel = modelName.includes('claude') ? 'Claude' : modelName.includes('gpt') ? 'GPT-4o' : modelName.includes('gemini') ? 'Gemini' : modelName.includes('llama') ? 'Llama' : 'OpenRouter model';
+
+    return {
+      providerUsed: `OpenRouter (${modelLabel})`,
+      model,
+      deepAnalysis: text,
+      keyRisks: [
+        'Overhead technical resistance cluster.',
+        'Regulatory and macro liquidity tailwinds/tailwinds may shift quickly.',
+      ],
+      growthDrivers: [
+        'Expanding addressable market in high-margin segments.',
+        'Operating leverage driving earnings upside surprise.',
+      ],
+      valuationFairValueEstimate: Number((data.currentPrice * 1.15).toFixed(2)),
+      analystToneAssessment: data.sentimentScore >= 15 ? 'BULLISH' : data.sentimentScore <= -20 ? 'BEARISH' : 'NEUTRAL',
+    };
+  }
+
+  /**
+   * Call OpenAI API (GPT-4o) — kept as a direct fallback alongside OpenRouter.
    */
   private async callOpenAI(data: LLMAnalysisRequest, apiKey: string): Promise<LLMAnalysisResponse> {
     const prompt = this.buildPrompt(data);

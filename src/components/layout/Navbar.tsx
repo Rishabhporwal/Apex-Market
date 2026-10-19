@@ -82,7 +82,7 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
 
   const navItems = [
     { id: 'discover', label: '🏠 Discover', icon: Compass },
-    { id: 'prediction', label: '🎯 AI Master Prediction', icon: Target },
+    { id: 'prediction', label: '🤖 AI Verdict', icon: Target },
     { id: 'chart', label: 'Terminal & Chart', icon: Activity },
     { id: 'sentiment', label: 'News & AI Predictions', icon: Sparkles },
     { id: 'financials', label: 'Financials & Valuation', icon: BarChart2 },

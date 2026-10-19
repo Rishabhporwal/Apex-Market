@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import { ScreenerFilter, ScreenerStockResult } from '@/types';
+import { MetricHelp } from '@/components/ui/MetricHelp';
 
 interface ScreenerViewProps {
   onSelectSymbol: (symbol: string) => void;
@@ -22,6 +23,12 @@ interface ScreenerViewProps {
 export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
   const [results, setResults] = useState<ScreenerStockResult[]>([]);
   const [loading, setLoading] = useState(true);
+  // Simple mode: plain-English filters for non-technical users. Advanced = original UI.
+  const [mode, setMode] = useState<'simple' | 'advanced'>('simple');
+  // Simple-mode picks (all optional, plain-language)
+  const [simpleGrowth, setSimpleGrowth] = useState<string>('any'); // any | growing | fast
+  const [simpleProfit, setSimpleProfit] = useState<string>('any'); // any | profitable | very
+  const [simpleCheap, setSimpleCheap] = useState<string>('any'); // any | cheap | reasonable
 
   // Filters State
   const [sector, setSector] = useState<string>('ALL');
@@ -48,6 +55,14 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
         pricePerformance,
         sortBy,
         sortOrder,
+        // Simple-mode plain-English filters
+        ...(mode === 'simple'
+          ? {
+              minRevenueGrowth: simpleGrowth === 'growing' ? 5 : simpleGrowth === 'fast' ? 15 : undefined,
+              minNetMargin: simpleProfit === 'profitable' ? 5 : simpleProfit === 'very' ? 15 : undefined,
+              maxPE: simpleCheap !== 'any' ? Math.min(maxPE ?? Infinity, simpleCheap === 'cheap' ? 15 : 25) : maxPE,
+            }
+          : {}),
       };
 
       const res = await fetch('/api/screener', {
@@ -69,7 +84,8 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
 
   useEffect(() => {
     fetchScreenerData();
-  }, [sector, minMarketCap, minPE, maxPE, minSentiment, pricePerformance, sortBy, sortOrder]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sector, minMarketCap, minPE, maxPE, minSentiment, pricePerformance, sortBy, sortOrder, mode, simpleGrowth, simpleProfit, simpleCheap]);
 
   const applyPreset = (presetName: string) => {
     setActivePreset(presetName);
@@ -119,13 +135,78 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
             <p className="text-xs text-slate-400 font-mono mt-0.5">Filter across liquid US equities by valuation, technicals & AI sentiment scores</p>
           </div>
 
-          <button
-            onClick={() => fetchScreenerData()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-400 transition"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Run Screen
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Simple / Advanced mode toggle */}
+            <div className="flex rounded-lg border border-slate-700 overflow-hidden text-xs font-sans">
+              <button
+                onClick={() => setMode('simple')}
+                className={`px-3 py-1.5 transition ${mode === 'simple' ? 'bg-cyan-500/20 text-cyan-300 font-semibold' : 'bg-slate-900 text-slate-400 hover:text-white'}`}
+              >
+                😊 Simple
+              </button>
+              <button
+                onClick={() => setMode('advanced')}
+                className={`px-3 py-1.5 transition ${mode === 'advanced' ? 'bg-cyan-500/20 text-cyan-300 font-semibold' : 'bg-slate-900 text-slate-400 hover:text-white'}`}
+              >
+                ⚙️ Advanced
+              </button>
+            </div>
+            <button
+              onClick={() => fetchScreenerData()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-400 transition"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Run Screen
+            </button>
+          </div>
         </div>
+
+        {/* SIMPLE MODE: plain-English filters */}
+        {mode === 'simple' && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-sans text-sm">
+            <div>
+              <label className="block text-slate-300 font-medium mb-1.5">
+                How should sales be growing? <MetricHelp term="revenueGrowthYoY" />
+              </label>
+              <select
+                value={simpleGrowth}
+                onChange={(e) => setSimpleGrowth(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-cyan-500"
+              >
+                <option value="any">I don't mind</option>
+                <option value="growing">Growing (5%+ a year)</option>
+                <option value="fast">Growing fast (15%+ a year)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-slate-300 font-medium mb-1.5">
+                How profitable should it be? <MetricHelp term="netMargin" />
+              </label>
+              <select
+                value={simpleProfit}
+                onChange={(e) => setSimpleProfit(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-cyan-500"
+              >
+                <option value="any">I don't mind</option>
+                <option value="profitable">Makes a profit</option>
+                <option value="very">Very profitable (15%+ margins)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-slate-300 font-medium mb-1.5">
+                How expensive should the price be? <MetricHelp term="peRatio" />
+              </label>
+              <select
+                value={simpleCheap}
+                onChange={(e) => setSimpleCheap(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-cyan-500"
+              >
+                <option value="any">I don't mind</option>
+                <option value="cheap">Cheap (P/E under 15)</option>
+                <option value="reasonable">Reasonable (P/E under 25)</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* Preset Chips */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar font-mono text-xs">
@@ -152,8 +233,11 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
         </div>
       </div>
 
-      {/* Interactive Filter Bar */}
-      <div className="glass-panel rounded-2xl p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 font-mono text-xs">
+      {/* Interactive Filter Bar (Advanced mode only) */}
+      <div
+        className={`glass-panel rounded-2xl p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 font-mono text-xs ${mode === 'advanced' ? '' : 'hidden'}`}
+        aria-hidden={mode !== 'advanced'}
+      >
         {/* Sector */}
         <div>
           <label className="block text-slate-400 text-[11px] uppercase mb-1">Sector</label>

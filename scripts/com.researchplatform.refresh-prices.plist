@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.researchplatform.refresh-prices</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>cd "$HOME/Desktop/Research Platform" &amp;&amp; /Users/rishabhporwal/.nvm/versions/node/v24.16.0/bin/node scripts/refresh-prices.mjs &gt;&gt; data/refresh.log 2&gt;&amp;1</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/rp-refresh.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/rp-refresh.err</string>
+</dict>
+</plist>

@@ -1,9 +1,151 @@
-import { ScreenerFilter, ScreenerStockResult } from '@/types';
+import { ScreenerFilter, ScreenerStockResult, StockQuote } from '@/types';
 import { marketDataService } from './marketDataService';
-import { sentimentService } from './sentimentService';
+import { edgarService } from './edgarService';
+
+/** Prebuilt screener presets backed by EDGAR warehouse fundamentals. */
+export const PRESETS: Array<{
+  id: string;
+  name: string;
+  description: string;
+  filters: Partial<ScreenerFilter>;
+}> = [
+  {
+    id: 'quality',
+    name: 'Steady Growers',
+    description: 'Profitable companies growing revenue 10%+ a year',
+    filters: { minRevenueGrowth: 10, minNetMargin: 10, minRoe: 12 },
+  },
+  {
+    id: 'value',
+    name: 'Cheap & Profitable',
+    description: 'Low P/E, solid margins',
+    filters: { maxPe: 18, minNetMargin: 8 },
+  },
+  {
+    id: 'dividend',
+    name: 'Dividend Payers',
+    description: 'Reliable income with healthy yields',
+    filters: { minDividendYield: 2 },
+  },
+  {
+    id: 'mega',
+    name: 'Big & Stable',
+    description: 'The largest, most established companies',
+    filters: { minMarketCap: 100_000_000_000 },
+  },
+];
 
 class ScreenerService {
-  // Broad universe of major tradeable US stocks across sectors
+  /**
+   * Screen stocks. Primary path: EDGAR warehouse fundamentals merged with live
+   * prices from marketDataService (per-stock try/catch). Falls back to the
+   * legacy Yahoo-quote path only when the warehouse is missing or empty.
+   */
+  async screenStocks(filters: ScreenerFilter): Promise<ScreenerStockResult[]> {
+    try {
+      const ready = await edgarService.isWarehouseReady();
+      if (!ready) return await this.legacyYahooScreen(filters);
+      return await this.edgarScreen(filters);
+    } catch (err) {
+      console.error('[screenerService] EDGAR screen failed, falling back to Yahoo:', err);
+      return this.legacyYahooScreen(filters);
+    }
+  }
+
+  private quoteCache = new Map<string, StockQuote>();
+
+  private async edgarScreen(filters: ScreenerFilter): Promise<ScreenerStockResult[]> {
+    const limit = filters.limit ?? 50;
+
+    // Pass 1: fundamentals-only (no price needed) to learn candidate tickers.
+    const baseFilters: ScreenerFilter = {
+      ...filters,
+      minMarketCap: undefined,
+      maxMarketCap: undefined,
+      maxPe: undefined,
+      minPE: undefined,
+      maxDividendYield: undefined,
+      limit: Math.min(limit * 4, 1000),
+    };
+    const base = await edgarService.getScreenerResults(baseFilters);
+
+    // Merge live prices; each stock fetch is individually non-fatal.
+    const priceMap: Record<string, number> = {};
+    for (let i = 0; i < base.length; i += 20) {
+      const batch = base.slice(i, i + 20);
+      const settled = await Promise.allSettled(
+        batch.map((s) => this.fetchQuoteWithTimeout(s.symbol))
+      );
+      settled.forEach((r, j) => {
+        if (r.status === 'fulfilled' && r.value && r.value.price > 0) {
+          priceMap[batch[j].symbol] = r.value.price;
+        }
+      });
+    }
+
+    // Pass 2: full filters with live prices (marketCap, P/E, dividend yield).
+    const results = await edgarService.getScreenerResults({ ...filters, limit }, priceMap);
+
+    // Enrich with legacy technical/sentiment estimates where a quote succeeded,
+    // then honor the legacy technical filters.
+    return results
+      .map((item) => {
+        const q = this.quoteCache.get(item.symbol);
+        if (!q) return item;
+        const enriched: ScreenerStockResult = {
+          ...item,
+          price: q.price,
+          changePercent: q.changePercent,
+          volume: q.volume,
+          beta: this.estimateBeta(item.sector, q.changePercent),
+          rsi14: this.estimateRSI(q.changePercent, q.price, q.week52High, q.week52Low),
+          sentimentScore: this.estimateSentiment(item.symbol, q.changePercent),
+        };
+        enriched.sentimentLabel =
+          enriched.sentimentScore >= 45
+            ? 'Strongly Bullish'
+            : enriched.sentimentScore >= 15
+            ? 'Bullish'
+            : enriched.sentimentScore <= -45
+            ? 'Strongly Bearish'
+            : enriched.sentimentScore <= -15
+            ? 'Bearish'
+            : 'Neutral';
+        return enriched;
+      })
+      .filter((item) => this.passesLegacyFilters(item, filters));
+  }
+
+  private async fetchQuoteWithTimeout(symbol: string): Promise<StockQuote | null> {
+    try {
+      const q = await Promise.race([
+        marketDataService.getQuote(symbol),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+      ]);
+      if (q) this.quoteCache.set(symbol, q);
+      return q;
+    } catch {
+      return null; // per-stock failures are non-fatal
+    }
+  }
+
+  private passesLegacyFilters(item: ScreenerStockResult, filters: ScreenerFilter): boolean {
+    if (filters.minRSI !== undefined && (item.rsi14 === undefined || item.rsi14 < filters.minRSI)) return false;
+    if (filters.maxRSI !== undefined && (item.rsi14 === undefined || item.rsi14 > filters.maxRSI)) return false;
+    if (filters.minBeta !== undefined && (item.beta === undefined || item.beta < filters.minBeta)) return false;
+    if (filters.maxBeta !== undefined && (item.beta === undefined || item.beta > filters.maxBeta)) return false;
+    if (filters.minSentimentScore !== undefined && item.sentimentScore < filters.minSentimentScore) return false;
+    if (filters.pricePerformance === 'GAINER_TODAY' && item.changePercent <= 0) return false;
+    if (filters.pricePerformance === 'LOSER_TODAY' && item.changePercent >= 0) return false;
+    if (filters.pricePerformance === 'NEAR_52W_HIGH' && (item.rsi14 ?? 0) < 70) return false;
+    if (filters.pricePerformance === 'NEAR_52W_LOW' && (item.rsi14 ?? 100) > 30) return false;
+    return true;
+  }
+
+  /**
+   * Legacy path (fallback only): quote-driven screen over a small hard-coded
+   * universe, kept for when the EDGAR warehouse has not been ingested yet.
+   */
   private universe = [
     { symbol: 'AAPL', name: 'Apple Inc.', sector: 'Technology' },
     { symbol: 'MSFT', name: 'Microsoft Corporation', sector: 'Technology' },
@@ -32,16 +174,14 @@ class ScreenerService {
     { symbol: 'BA', name: 'Boeing Co.', sector: 'Industrials' },
   ];
 
-  /**
-   * Screen stocks based on multi-variable criteria
-   */
-  async screenStocks(filters: ScreenerFilter): Promise<ScreenerStockResult[]> {
-    // 1. Filter by sector initially if specified
-    const targetUniverse = filters.sector && filters.sector !== 'ALL'
-      ? this.universe.filter((item) => item.sector.toLowerCase() === filters.sector?.toLowerCase())
-      : this.universe;
+  private async legacyYahooScreen(filters: ScreenerFilter): Promise<ScreenerStockResult[]> {
+    const targetUniverse =
+      filters.sector && filters.sector !== 'ALL'
+        ? this.universe.filter(
+            (item) => item.sector.toLowerCase() === filters.sector?.toLowerCase()
+          )
+        : this.universe;
 
-    // 2. Fetch quotes for universe
     const symbols = targetUniverse.map((u) => u.symbol);
     const quotes = await marketDataService.getBatchQuotes(symbols);
 

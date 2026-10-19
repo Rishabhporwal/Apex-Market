@@ -1,0 +1,70 @@
+/**
+ * AI Verdict types. Kept separate from src/types/index.ts so this module
+ * can evolve independently — always import from './verdict'.
+ */
+
+export type VerdictAction = 'BUY' | 'HOLD' | 'NEUTRAL' | 'SELL';
+export type VerdictHorizon = 'short' | 'swing' | 'long';
+export type NewsSentiment = 'bullish' | 'bearish' | 'neutral';
+
+export interface VerdictNewsItem {
+  title: string;
+  source: string;
+  url?: string;
+  sentiment: NewsSentiment;
+  score: number; // -1.0 .. 1.0
+}
+
+export interface VerdictFundamentals {
+  revenueGrowthYoY?: number;
+  netMargin?: number;
+  roe?: number;
+  peRatio?: number;
+  source: string; // e.g. 'SEC EDGAR (FY2024)' or 'Yahoo Finance'
+}
+
+export interface AiVerdict {
+  symbol: string;
+  name: string;
+  price: number;
+  asOf: number;
+  verdict: {
+    action: VerdictAction;
+    confidence: number; // 0..100
+    horizon: VerdictHorizon;
+    summary: string;
+  };
+  levels: {
+    target1?: number;
+    target2?: number;
+    stopLoss?: number;
+    supports: number[];
+    resistances: number[];
+    sma20?: number;
+    sma50?: number;
+    sma200?: number;
+    rsi14?: number;
+    atr14?: number;
+    week52High?: number;
+    week52Low?: number;
+  };
+  drivers: {
+    bullish: string[];
+    bearish: string[];
+    newsItems: VerdictNewsItem[];
+  };
+  strategy: {
+    headline: string;
+    entry?: string;
+    plan: string[];
+    riskNote: string;
+  };
+  fundamentals?: VerdictFundamentals;
+  technicals: {
+    trend: 'up' | 'down' | 'sideways';
+    rsi14?: number;
+    sentimentScore?: number;
+  };
+  aiNarrative?: string;
+  disclaimer: string;
+}

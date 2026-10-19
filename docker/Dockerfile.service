@@ -1,0 +1,22 @@
+# Shared Dockerfile for all ApexMarket microservices.
+# Build with:  docker build -f docker/Dockerfile.service --build-arg SVC=market-data -t apex/svc-market-data .
+# The image is identical except the entrypoint — layer cache is shared across all 7 services.
+FROM node:24-bookworm-slim
+
+WORKDIR /app
+
+# Install deps first (cached layer). Root package.json covers yahoo-finance2,
+# @duckdb/node-api, fastify, pino — everything the services import.
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Service sources + shared lib
+COPY services ./services
+
+# Data files are MOUNTED, not baked in — the warehouse is 100MB+ and changes.
+RUN mkdir -p /app/data
+
+# Per-service entrypoint
+ARG SVC
+ENV SVC_NAME=${SVC}
+CMD ["sh", "-c", "node services/${SVC_NAME}/index.mjs"]
