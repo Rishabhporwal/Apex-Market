@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   ChevronUp,
   ChevronDown,
+  Star,
 } from 'lucide-react';
 import { MetricHelp } from '@/components/ui/MetricHelp';
 
@@ -143,6 +144,8 @@ export function VerdictView({ symbol }: { symbol: string }) {
   const [v, setV] = useState<AiVerdict | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [watched, setWatched] = useState(false);
+  const [watchBusy, setWatchBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -155,6 +158,37 @@ export function VerdictView({ symbol }: { symbol: string }) {
       setError(e.message || 'Failed to generate verdict');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Is this symbol already on the watchlist?
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/watchlist');
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setWatched((data.symbols || []).some((s: { symbol: string }) => s.symbol === symbol.toUpperCase()));
+        }
+      } catch { /* watchlist unavailable — star stays off */ }
+    })();
+    return () => { cancelled = true; };
+  }, [symbol]);
+
+  const toggleWatch = async () => {
+    setWatchBusy(true);
+    try {
+      const res = watched
+        ? await fetch(`/api/watchlist?symbol=${encodeURIComponent(symbol)}`, { method: 'DELETE' })
+        : await fetch('/api/watchlist', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ symbol }),
+          });
+      if (res.ok) setWatched(!watched);
+    } finally {
+      setWatchBusy(false);
     }
   };
 
@@ -194,9 +228,18 @@ export function VerdictView({ symbol }: { symbol: string }) {
         <div className="flex flex-col lg:flex-row lg:items-center gap-6">
           <div className="flex-1">
             <div className="flex items-center gap-2 text-xs text-slate-400">
+              <button
+                onClick={toggleWatch}
+                disabled={watchBusy}
+                title={watched ? `Remove ${v.symbol} from watchlist` : `Track ${v.symbol} — get alerted when the verdict changes`}
+                className={`shrink-0 transition ${watched ? 'text-amber-400' : 'text-slate-600 hover:text-amber-300'} disabled:opacity-50`}
+              >
+                <Star className={`h-5 w-5 ${watched ? 'fill-amber-400' : ''}`} />
+              </button>
               <span className="font-bold text-cyan-300 text-sm">{v.symbol}</span>
               <span>·</span>
               <span>{v.name}</span>
+              {watched && <span className="text-[10px] text-amber-400/80">tracked · alerts on</span>}
             </div>
             <div className="flex items-baseline gap-3 mt-1">
               <span className="text-4xl font-bold text-white">${v.price.toFixed(2)}</span>

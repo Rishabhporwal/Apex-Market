@@ -16,7 +16,8 @@ import {
   ArrowDownRight,
   Sparkles,
   Target,
-  Compass
+  Compass,
+  Star
 } from 'lucide-react';
 import { StockQuote } from '@/types';
 
@@ -90,6 +91,7 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
     { id: 'screener', label: 'Stock Screener', icon: Sliders },
     { id: 'backtest', label: 'Quant Backtester', icon: Zap },
     { id: 'portfolio', label: 'Paper Trading', icon: Briefcase },
+    { id: 'watchlist', label: '⭐ Watchlist', icon: Star },
   ];
 
   return (

@@ -18,11 +18,16 @@ export function gatewayConfigured(): boolean {
   return Boolean(process.env.API_GATEWAY_URL);
 }
 
+export interface ProxyOptions {
+  /** Extra headers forwarded verbatim to the gateway (e.g. x-client-id). */
+  headers?: Record<string, string>;
+}
+
 /**
  * Forward the request to the gateway. Returns null when the gateway is not
  * configured (caller falls through to the local implementation).
  */
-export async function proxyToGateway(req: NextRequest, gatewayPath: string): Promise<NextResponse | null> {
+export async function proxyToGateway(req: NextRequest, gatewayPath: string, options: ProxyOptions = {}): Promise<NextResponse | null> {
   const base = process.env.API_GATEWAY_URL;
   if (!base) return null;
 
@@ -30,7 +35,7 @@ export async function proxyToGateway(req: NextRequest, gatewayPath: string): Pro
   const target = `${base.replace(/\/$/, '')}${gatewayPath}${url.search}`;
 
   try {
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    const headers: Record<string, string> = { 'content-type': 'application/json', ...(options.headers || {}) };
     // Propagate inbound trace headers so gateway→mesh logs chain from the web app
     for (const h of ['x-request-id', 'x-trace-id']) {
       const v = req.headers.get(h);

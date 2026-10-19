@@ -5,6 +5,10 @@ FROM node:24-bookworm-slim
 
 WORKDIR /app
 
+# Build tools for native modules compiled at install time (better-sqlite3 needs
+# python3 + make + g++ via node-gyp). Shared layer — cached across all services.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
+
 # Install deps first (cached layer). Root package.json covers yahoo-finance2,
 # @duckdb/node-api, fastify, pino — everything the services import.
 COPY package.json package-lock.json ./

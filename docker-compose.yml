@@ -174,6 +174,27 @@ services:
       research: { condition: service_healthy }
     healthcheck: *svc-health
 
+  # ---- user state -------------------------------------------------------------
+  # svc-userdata OWNS userdata.db (read-write volume). It never touches
+  # warehouse.duckdb or prices.duckdb (data-ownership boundary, ADR-001).
+  userdata:
+    <<: *svc-defaults
+    build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: userdata } }
+    container_name: apex-userdata
+    volumes:
+      - ./data:/app/data             # read-write — this service owns userdata.db
+    environment:
+      - NODE_ENV=production
+      - SERVICE_BIND=0.0.0.0
+      - PORT=8008
+      - SERVICE_HOST=userdata
+      - REGISTRY_URL=http://registry:8010
+      - SERVICES_JSON={"verdict":"http://verdict:8003","registry":"http://registry:8010"}
+    depends_on:
+      registry: { condition: service_healthy }
+      verdict: { condition: service_healthy }
+    healthcheck: *svc-health
+
   # ---- edge ------------------------------------------------------------------
   gateway:
     <<: *svc-defaults
@@ -187,7 +208,7 @@ services:
       - PORT=8080
       - SERVICE_HOST=gateway
       - REGISTRY_URL=http://registry:8010
-      - SERVICES_JSON={"market-data":"http://market-data:8001","edgar":"http://edgar:8002","verdict":"http://verdict:8003","news":"http://news:8004","llm":"http://llm:8005","research":"http://research:8006","analytics":"http://analytics:8007","registry":"http://registry:8010"}
+      - SERVICES_JSON={"market-data":"http://market-data:8001","edgar":"http://edgar:8002","verdict":"http://verdict:8003","news":"http://news:8004","llm":"http://llm:8005","research":"http://research:8006","analytics":"http://analytics:8007","userdata":"http://userdata:8008","registry":"http://registry:8010"}
     depends_on:
       registry: { condition: service_healthy }
       market-data: { condition: service_healthy }
@@ -197,6 +218,7 @@ services:
       llm: { condition: service_healthy }
       research: { condition: service_healthy }
       analytics: { condition: service_healthy }
+      userdata: { condition: service_healthy }
     healthcheck: *svc-health
 
   # ---- UI --------------------------------------------------------------------

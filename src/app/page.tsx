@@ -11,6 +11,7 @@ import { ScreenerView } from '@/components/screener/ScreenerView';
 import { DiscoverView } from '@/components/discover/DiscoverView';
 import { BacktestView } from '@/components/backtesting/BacktestView';
 import { PortfolioView } from '@/components/portfolio/PortfolioView';
+import { WatchlistView } from '@/components/watchlist/WatchlistView';
 import { AiCopilotModal } from '@/components/research/AiCopilotModal';
 import { StockQuote } from '@/types';
 
@@ -121,6 +122,15 @@ export default function Home() {
         {activeTab === 'portfolio' && (
           <PortfolioView
             activeSymbol={selectedSymbol}
+            onSelectSymbol={(sym) => {
+              setSelectedSymbol(sym);
+              setActiveTab('prediction');
+            }}
+          />
+        )}
+
+        {activeTab === 'watchlist' && (
+          <WatchlistView
             onSelectSymbol={(sym) => {
               setSelectedSymbol(sym);
               setActiveTab('prediction');

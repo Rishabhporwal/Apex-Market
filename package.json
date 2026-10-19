@@ -20,7 +20,8 @@
     "svc:verdict": "node services/verdict/index.mjs",
     "svc:news": "node services/news/index.mjs",
     "svc:llm": "node services/llm/index.mjs",
-    "svc:gateway": "node services/gateway/index.mjs"
+    "svc:gateway": "node services/gateway/index.mjs",
+    "svc:userdata": "node services/userdata/index.mjs"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +29,7 @@
   "type": "module",
   "dependencies": {
     "@duckdb/node-api": "^1.5.6-r.1",
+    "better-sqlite3": "^13.0.3",
     "clsx": "^2.1.1",
     "fastify": "^5.12.7",
     "lightweight-charts": "^5.2.1",

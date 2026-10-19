@@ -27,6 +27,7 @@ const STATIC_SERVICES = process.env.SERVICES_JSON
       llm: 'http://localhost:8005',
       research: 'http://localhost:8006',
       analytics: 'http://localhost:8007',
+      userdata: 'http://localhost:8008',
     };
 
 const app = Fastify({ logger: false, trustProxy: true });
@@ -205,6 +206,18 @@ app.all('/api/*', async (req, reply) => {
     // LLM plane orchestration endpoint
     serviceName = 'llm';
     downstreamPath = url.replace(/^\/api\/ai-research/, '/research');
+  } else if (url.startsWith('/api/watchlist')) {
+    // svc-userdata path shape == gateway path shape (/api/watchlist → /watchlist)
+    serviceName = 'userdata';
+    downstreamPath = url.replace(/^\/api/, '');
+    // Legacy query-style DELETE /api/watchlist?symbol=X → path-style DELETE /watchlist/X
+    if (req.method === 'DELETE') {
+      const sym = new URL(url, 'http://x').searchParams.get('symbol');
+      if (sym) downstreamPath = `/watchlist/${encodeURIComponent(sym.toUpperCase())}`;
+    }
+  } else if (url.startsWith('/api/alerts')) {
+    serviceName = 'userdata';
+    downstreamPath = url.replace(/^\/api/, '');
   } else if (url.startsWith('/api/registry/services')) {
     serviceName = 'svc-registry';
     downstreamPath = url.replace(/^\/api\/registry/, '');
@@ -221,6 +234,9 @@ app.all('/api/*', async (req, reply) => {
     method: req.method,
     body: req.method === 'GET' || req.method === 'HEAD' ? null : req.body,
     ctx: req.traceCtx,
+    // Anonymous device identity: the BFF sets x-client-id (cookie-backed).
+    // Forwarded globally — every downstream service may key off it later.
+    headers: req.headers['x-client-id'] ? { 'x-client-id': req.headers['x-client-id'] } : {},
     span: `gateway.proxy.${serviceName}`,
     timeoutMs: proxyTimeoutFor(url),
     log,
