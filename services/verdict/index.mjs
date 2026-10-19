@@ -131,11 +131,14 @@ async function generateVerdict(symbol, ctx) {
   const horizon = trendStrong && rsiExtreme ? 'swing' : trendStrong ? 'swing' : 'long';
 
   // ---- LLM narrative (only when a provider key exists) --------------------
+  // Uses the multi-model ensemble: N cheap models run the same prompt in
+  // parallel and vote; consensus is honest uncertainty signaling.
   let narrative;
   let llmTone;
+  let ensemble = null;
   if (process.env.OPENROUTER_API_KEY) {
     try {
-      const llm = await callPeer('llm', '/narrate', {
+      const llm = await callPeer('llm', '/ensemble', {
         ctx,
         method: 'POST',
         body: {
@@ -147,12 +150,14 @@ async function generateVerdict(symbol, ctx) {
           newsHeadlines: news.newsItems.map((n) => n.title),
           keyFinancials: { trailingPE: fundamentals?.peRatio },
         },
-        timeoutMs: 70_000,
+        timeoutMs: 90_000,
       });
-      narrative = llm?.deepAnalysis;
-      llmTone = llm?.analystToneAssessment;
+      narrative = llm?.narrative || llm?.deepAnalysis;
+      ensemble = llm?.votes ? { consensus: llm.consensus, agreeing: llm.agreeing, of: llm.of, votes: llm.votes } : null;
+      // Majority tone feeds the soft vote
+      llmTone = llm?.consensus === 'BUY' ? 'BULLISH' : llm?.consensus === 'SELL' ? 'BEARISH' : llm?.consensus === 'HOLD' ? 'NEUTRAL' : undefined;
     } catch (err) {
-      appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM analysis failed for ${clean}: ${err.message}` });
+      appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM ensemble failed for ${clean}: ${err.message}` });
     }
   }
 
@@ -216,6 +221,7 @@ async function generateVerdict(symbol, ctx) {
     fundamentals,
     technicals: { trend, rsi14, sentimentScore: news.sentimentScore },
     aiNarrative: narrative,
+    ensemble,
     disclaimer: DISCLAIMER,
   };
 }

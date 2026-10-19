@@ -146,7 +146,7 @@ function symbolQueryToPath(url, apiPrefix, basePath, { defaultSymbol = 'NVDA' } 
 // Slower downstreams (LLM, multi-service orchestration, backtests) get a
 // longer proxy timeout than plain data-plane reads.
 function proxyTimeoutFor(url) {
-  if (url.includes('/research') || url.includes('/ai-research') || url.includes('/prediction') || url.includes('/verdict') || url.includes('/narrate')) return 90_000;
+  if (url.includes('/research') || url.includes('/ai-research') || url.includes('/prediction') || url.includes('/verdict') || url.includes('/narrate') || url.includes('/ensemble')) return 120_000;
   if (url.includes('/backtest')) return 75_000;
   if (url.includes('/financials') || url.includes('/technical') || url.includes('/sentiment')) return 40_000;
   return 25_000;
@@ -213,7 +213,12 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/watchlist')) {
     // svc-userdata path shape == gateway path shape (/api/watchlist → /watchlist)
     serviceName = 'userdata';
-    downstreamPath = url.replace(/^\/api/, '');
+    if (url.startsWith('/api/watchlist/history/')) {
+      // score-evolution series lives at userdata /history/:symbol
+      downstreamPath = url.replace(/^\/api\/watchlist\/history/, '/history');
+    } else {
+      downstreamPath = url.replace(/^\/api/, '');
+    }
     // Legacy query-style DELETE /api/watchlist?symbol=X → path-style DELETE /watchlist/X
     if (req.method === 'DELETE') {
       const sym = new URL(url, 'http://x').searchParams.get('symbol');

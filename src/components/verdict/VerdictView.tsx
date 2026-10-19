@@ -57,6 +57,7 @@ interface AiVerdict {
   };
   technicals: { trend: string; rsi14?: number; sentimentScore?: number };
   aiNarrative?: string;
+  ensemble?: { consensus: string | null; agreeing: number; of: number; votes: { model: string; verdict: string | null; confidenceGuess: number | null; error?: string }[] } | null;
   disclaimer: string;
 }
 
@@ -290,6 +291,23 @@ export function VerdictView({ symbol }: { symbol: string }) {
               </div>
             </div>
             <div className="mt-2 text-[11px] text-slate-400 capitalize">Horizon: {v.verdict.horizon}-term</div>
+            {v.ensemble && v.ensemble.consensus && (
+              <div
+                className="mt-3 pt-3 border-t border-slate-700/60"
+                title={v.ensemble.votes.map((vt) => `${vt.model.split('/')[0]}: ${vt.verdict ?? 'error'}`).join(' · ')}
+              >
+                <div className="text-[10px] uppercase tracking-wider text-slate-400">Model ensemble</div>
+                <div className={`text-xs font-semibold ${v.ensemble.agreeing === v.ensemble.of ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {v.ensemble.agreeing}/{v.ensemble.of} models say {v.ensemble.consensus}
+                </div>
+                <div className="flex justify-center gap-1 mt-1.5">
+                  {v.ensemble.votes.map((vt, i) => {
+                    const c = vt.verdict === 'BUY' ? 'bg-emerald-400' : vt.verdict === 'SELL' ? 'bg-rose-400' : vt.verdict ? 'bg-amber-400' : 'bg-slate-600';
+                    return <span key={i} className={`h-1.5 w-5 rounded-full ${c}`} title={`${vt.model}: ${vt.verdict ?? vt.error ?? '?'}`} />;
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -408,6 +426,9 @@ export function VerdictView({ symbol }: { symbol: string }) {
         </div>
       )}
 
+      {/* Score evolution (accumulated by the userdata checker over time) */}
+      <ScoreEvolution symbol={v.symbol} currentAction={v.verdict.action} currentConfidence={v.verdict.confidence} />
+
       {/* AI narrative (only when an LLM key is configured) */}
       {v.aiNarrative && (
         <div className="glass-panel rounded-2xl p-6">
@@ -447,6 +468,69 @@ export function VerdictView({ symbol }: { symbol: string }) {
       <div className="text-[11px] text-slate-500 leading-relaxed px-1">
         <ShieldAlert className="h-3 w-3 inline mr-1 -mt-0.5" />
         {v.disclaimer}
+      </div>
+    </div>
+  );
+}
+
+/** Score evolution — how the AI's rating for this ticker has moved over time.
+ *  Data accumulates from the watchlist checker (userdata verdict_history table). */
+function ScoreEvolution({ symbol, currentAction, currentConfidence }: { symbol: string; currentAction: string; currentConfidence: number }) {
+  const [history, setHistory] = useState<{ action: string; confidence: number | null; checkedAt: number }[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/watchlist/history/${encodeURIComponent(symbol)}`);
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setHistory(data.history || []);
+        } else if (!cancelled) setHistory([]);
+      } catch { if (!cancelled) setHistory([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [symbol]);
+
+  if (!history || history.length < 3) return null; // not enough data yet — honest blank
+  const pts = [...history, { action: currentAction, confidence: currentConfidence, checkedAt: Date.now() }];
+  const W = 560, H = 90, PAD = 6;
+  const min = 0, max = 100;
+  const x = (i: number) => PAD + (i / (pts.length - 1)) * (W - 2 * PAD);
+  const y = (c: number) => H - PAD - (c / (max - min)) * (H - 2 * PAD);
+  const confPts = pts.filter((p) => p.confidence != null);
+  const line = confPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(confPts.length === pts.length ? pts.indexOf(p) : i)},${y(p.confidence!)}`).join(' ');
+  const actionColor = (a: string) => (a === 'BUY' ? '#34d399' : a === 'SELL' ? '#fb7185' : '#fbbf24');
+  const first = pts[0], last = pts[pts.length - 1];
+  const changed = pts.filter((p, i) => i > 0 && p.action !== pts[i - 1].action).length;
+
+  return (
+    <div className="glass-panel rounded-2xl p-6">
+      <h3 className="font-bold text-white flex items-center gap-2 mb-1">
+        <TrendingUp className="h-4 w-4 text-cyan-400" /> Score evolution
+      </h3>
+      <p className="text-xs text-slate-500 mb-3">
+        How the AI has rated {symbol} over its last {pts.length} checks · {changed} rating change{changed === 1 ? '' : 's'} recorded
+      </p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[90px]">
+        <line x1={PAD} y1={y(35)} x2={W - PAD} y2={y(35)} stroke="#10b98155" strokeDasharray="4 4" strokeWidth="1" />
+        <text x={W - PAD} y={y(35) - 3} textAnchor="end" fontSize="8" fill="#10b98199">BUY threshold (35)</text>
+        <path d={line} fill="none" stroke="#38bdf8" strokeWidth="1.5" />
+        {confPts.map((p, i) => (
+          <circle
+            key={i}
+            cx={x(confPts.length === pts.length ? pts.indexOf(p) : i)}
+            cy={y(p.confidence!)}
+            r="3"
+            fill={actionColor(p.action)}
+          >
+            <title>{new Date(p.checkedAt).toLocaleString()} · {p.action} · {p.confidence}%</title>
+          </circle>
+        ))}
+      </svg>
+      <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
+        <span>{new Date(first.checkedAt).toLocaleDateString()}: {first.action}</span>
+        <span>Now: <strong style={{ color: actionColor(last.action) }}>{last.action} {last.confidence}%</strong></span>
       </div>
     </div>
   );

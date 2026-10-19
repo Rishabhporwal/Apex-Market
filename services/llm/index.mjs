@@ -54,10 +54,9 @@ Provide a concise, 3-paragraph executive institutional research report:
   return data.userQuery ? `${base}\n\nAdditional analyst request: ${data.userQuery}` : base;
 }
 
-/** OpenRouter call — throws on any failure; caller falls back to local engine. */
-async function callOpenRouter(data, apiKey, log) {
+/** OpenRouter call for a SPECIFIC model (primary + ensemble path). Throws on failure. */
+async function callOpenRouterModel(data, apiKey, model, log) {
   const prompt = buildPrompt(data);
-  const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -140,12 +139,36 @@ async function runDeepAnalysis(data, log, customKey) {
   const openRouterKey = customKey || process.env.OPENROUTER_API_KEY;
   if (openRouterKey) {
     try {
-      return await callOpenRouter(data, openRouterKey, log);
+      return await callOpenRouterModel(data, openRouterKey, process.env.OPENROUTER_MODEL || DEFAULT_MODEL, log);
     } catch (err) {
       log.warn({ msg: `OpenRouter API call failed, falling back to local engine: ${err.message}` });
     }
   }
   return generateLocalInstitutionalAnalysis(data);
+}
+
+// ---- Multi-model ensemble: parallel run across models, majority vote on verdict ----
+const ENSEMBLE_MODELS = (process.env.ENSEMBLE_MODELS || 'deepseek/deepseek-v3.2,z-ai/glm-5.3-flash,qwen/qwen3-32b')
+  .split(',').map((m) => m.trim()).filter(Boolean);
+
+/** Ask one model for its verdict; returns {model, verdict, confidenceGuess, text} or {model, error}. */
+async function ensembleOne(data, apiKey, model, log) {
+  try {
+    const withVerdict = { ...data, userQuery: (data.userQuery ? data.userQuery + '\n\n' : '') +
+      'End your report with a final line in EXACTLY this format: VERDICT: <BUY|HOLD|SELL> CONFIDENCE: <0-100>' };
+    const out = await callOpenRouterModel(withVerdict, apiKey, model, log);
+    const m = /VERDICT:\s*(BUY|HOLD|SELL)/i.exec(out.deepAnalysis || '');
+    const c = /CONFIDENCE:\s*(\d{1,3})/i.exec(out.deepAnalysis || '');
+    return {
+      model,
+      verdict: m ? m[1].toUpperCase() : null,
+      confidenceGuess: c ? Math.min(100, Number(c[1])) : null,
+      providerUsed: out.providerUsed,
+      deepAnalysis: out.deepAnalysis,
+    };
+  } catch (err) {
+    return { model, error: err.message };
+  }
 }
 
 // ---- HTTP surface ----
@@ -178,6 +201,45 @@ app.post('/narrate', async (req, reply) => {
     // Local engine cannot throw, but guard anyway.
     return generateLocalInstitutionalAnalysis(data);
   }
+});
+
+// POST /ensemble — same narrate payload; runs the prompt across multiple models
+// in parallel and returns each model's verdict + a majority consensus.
+// Ensemble disagreement is honest uncertainty signaling, not an error.
+app.post('/ensemble', async (req, reply) => {
+  const b = req.body || {};
+  if (!b.symbol) return reply.status(400).send({ error: 'symbol is required' });
+  const apiKey = b.apiKey || process.env.OPENROUTER_API_KEY;
+  const data = {
+    symbol: String(b.symbol).trim().toUpperCase(),
+    companyName: b.companyName || b.symbol,
+    currentPrice: Number(b.currentPrice) || 0,
+    technicalSummary: b.technicalSummary || {},
+    sentimentScore: Number(b.sentimentScore) || 0,
+    newsHeadlines: Array.isArray(b.newsHeadlines) ? b.newsHeadlines : [],
+    keyFinancials: b.keyFinancials || {},
+  };
+  const log = req.log ?? app.log;
+
+  if (!apiKey) {
+    // No key: single deterministic local vote
+    const local = generateLocalInstitutionalAnalysis(data);
+    return { consensus: null, votes: [{ model: 'local-engine', verdict: local.analystToneAssessment || null, error: 'no key — deterministic engine only' }], agreeing: 0, of: 1 };
+  }
+
+  const votes = await Promise.all(ENSEMBLE_MODELS.map((m) => ensembleOne(data, apiKey, m, log)));
+  const valid = votes.filter((v) => v.verdict);
+  const tally = {};
+  for (const v of valid) tally[v.verdict] = (tally[v.verdict] || 0) + 1;
+  const consensus = Object.entries(tally).sort((a, b2) => b2[1] - a[1])[0]?.[0] || null;
+  return {
+    consensus,
+    agreeing: consensus ? tally[consensus] : 0,
+    of: votes.length,
+    votes: votes.map(({ model, verdict, confidenceGuess, error }) => ({ model, verdict, confidenceGuess, error })),
+    narrative: valid[0]?.deepAnalysis,
+    providerUsed: valid[0]?.providerUsed,
+  };
 });
 
 /**

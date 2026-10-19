@@ -58,6 +58,14 @@ db.exec(`
     created_at  INTEGER NOT NULL,
     seen        INTEGER NOT NULL DEFAULT 0
   );
+  CREATE TABLE IF NOT EXISTS verdict_history (
+    symbol     TEXT NOT NULL,
+    action     TEXT NOT NULL,
+    confidence INTEGER,
+    price      REAL,
+    checked_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_history_symbol ON verdict_history (symbol, checked_at);
   CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts (client_id, seen);
 `);
 
@@ -97,6 +105,14 @@ const listAlerts = db.prepare('SELECT * FROM alerts WHERE client_id = ? AND (? =
 const countUnseen = db.prepare('SELECT COUNT(*) AS n FROM alerts WHERE client_id = ? AND seen = 0');
 const markSeen = db.prepare('UPDATE alerts SET seen = 1 WHERE id = ? AND client_id = ?');
 const distinctSymbols = db.prepare('SELECT DISTINCT symbol FROM watchlist');
+const insertHistory = db.prepare(`
+  INSERT INTO verdict_history (symbol, action, confidence, price, checked_at)
+  VALUES (@symbol, @action, @confidence, @price, @checked_at)
+`);
+const historyFor = db.prepare(`
+  SELECT action, confidence, price, checked_at AS checkedAt
+  FROM verdict_history WHERE symbol = ? ORDER BY checked_at ASC LIMIT 500
+`);
 
 /** Shape a watchlist row the way the API contract wants (with last verdict). */
 function watchlistResponse(clientId) {
@@ -157,15 +173,19 @@ async function runCheckCycle(reason = 'scheduled') {
         };
         const tx = db.transaction(() => {
           upsertSnapshot.run(snap);
+          insertHistory.run(snap);
           if (prev && prev.action !== action) {
+            const created = [];
             for (const w of watchersOf.all(symbol)) {
               insertAlert.run({
                 client_id: w.client_id, symbol,
                 from_action: prev.action, to_action: action,
                 confidence: snap.confidence, price: snap.price, created_at: now,
               });
+              created.push({ symbol, fromAction: prev.action, toAction: action, confidence: snap.confidence, price: snap.price });
               cycleLog.alerts += 1;
             }
+            if (created.length) deliverWebhook(created);
             cycleLog.changed += 1;
           }
         });
@@ -230,6 +250,34 @@ app.post('/alerts/seen', async (req) => {
   const updated = mark(ids);
   const alerts = listAlerts.all(clientId, 0).map(alertRow);
   return { updated, alerts, unseenCount: countUnseen.get(clientId).n };
+});
+
+// Optional push delivery: when ALERT_WEBHOOK_URL is set, POST alert payloads
+// there (Discord/Slack-compatible shape). Fire-and-forget; failures logged only.
+async function deliverWebhook(alerts) {
+  const url = process.env.ALERT_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        text: alerts.map((a) => `📈 ${a.symbol} verdict changed: ${a.fromAction} → ${a.toAction} (confidence ${a.confidence ?? '—'}%, price ${a.price != null ? '$' + a.price.toFixed(2) : 'n/a'})`).join('\n'),
+        alerts,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    log.info({ msg: `webhook delivered for ${alerts.length} alert(s)` });
+  } catch (err) {
+    log.warn({ msg: `webhook delivery failed: ${err?.message}` });
+  }
+}
+
+// GET /history/:symbol — the verdict score evolution (time series for the chart)
+app.get('/history/:symbol', async (req, reply) => {
+  const symbol = String(req.params.symbol || '').trim().toUpperCase();
+  if (!SYMBOL_RE.test(symbol)) return reply.status(400).send({ error: 'invalid symbol' });
+  return { symbol, history: historyFor.all(symbol) };
 });
 
 app.post('/check-now', async () => runCheckCycle('check-now'));
