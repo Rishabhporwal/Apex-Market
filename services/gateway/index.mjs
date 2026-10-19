@@ -188,6 +188,10 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/filings')) {
     serviceName = 'research';
     downstreamPath = symbolQueryToPath(url, '/api/filings', '/filings');
+  } else if (url.startsWith('/api/earnings')) {
+    // research service: GET /earnings/:symbol (next earnings date)
+    serviceName = 'research';
+    downstreamPath = url.replace(/^\/api\/earnings/, '/earnings');
   } else if (url.startsWith('/api/technical')) {
     serviceName = 'research';
     downstreamPath = symbolQueryToPath(url, '/api/technical', '/technical');

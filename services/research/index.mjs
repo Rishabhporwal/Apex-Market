@@ -27,6 +27,7 @@ const financialsCache = new TtlCache(10 * 60_000, 300, 'financials'); // fundame
 const filingsCache = new TtlCache(10 * 60_000, 300, 'filings');
 const candlesCache = new TtlCache(10 * 60_000, 500, 'candles');       // same TTL as svc-market-data
 const technicalCache = new TtlCache(5 * 60_000, 300, 'technicals');   // computed analytics
+const earningsCache = new TtlCache(60 * 60_000, 500, 'earnings');      // earnings dates move daily at most
 
 // ---- data access (ports of financialsService.ts / filingsService.ts) ----
 
@@ -472,6 +473,42 @@ app.get('/technical/:symbol', async (req, reply) => {
     return payload;
   } catch (err) {
     return reply.status(502).send({ error: err?.message || 'Technical analysis service failed' });
+  }
+});
+
+// GET /earnings/:symbol — next earnings date + days until it (earnings-calendar awareness)
+app.get('/earnings/:symbol', async (req, reply) => {
+  const symbol = String(req.params.symbol || '').trim().toUpperCase();
+  try {
+    const payload = await earningsCache.wrap(symbol, async () => {
+      const summary = await yf.quoteSummary(symbol, { modules: ['calendarEvents', 'price'] });
+      const cal = summary?.calendarEvents || {};
+      const raw = cal.earnings?.earningsDate;
+      // yahoo-finance2 may return numeric epochs, {raw: epoch}, or ISO strings depending on version/options
+      const toMs = (d) => {
+        if (d instanceof Date) return d.getTime();
+        if (typeof d === 'number') return d * 1000;
+        if (typeof d === 'string') { const t = Date.parse(d); return Number.isNaN(t) ? null : t; }
+        if (d && typeof d.raw === 'number') return d.raw * 1000;
+        if (d && d.raw instanceof Date) return d.raw.getTime();
+        if (d && typeof d.getTime === 'function') return d.getTime();
+        return null;
+      };
+      const dates = (Array.isArray(raw) ? raw : [raw]).map(toMs).filter((ms) => ms !== null);
+      // Take the next upcoming date; Yahoo may return a range (start/end)
+      const now = Date.now();
+      const next = dates.sort((a, b) => a - b).find((ms) => ms >= now - 24 * 3600 * 1000);
+      return {
+        symbol,
+        earningsDate: next ? new Date(next).toISOString() : null,
+        earningsDateRaw: dates.length ? dates.map((ms) => new Date(ms).toISOString()) : [],
+        daysUntil: next ? Math.round((next - now) / (24 * 3600 * 1000)) : null,
+        fetchedAt: now,
+      };
+    });
+    return payload;
+  } catch (err) {
+    return reply.status(502).send({ error: err?.message || 'Earnings service failed' });
   }
 });
 

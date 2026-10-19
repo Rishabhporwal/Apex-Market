@@ -40,6 +40,7 @@ interface AiVerdict {
     sma50?: number;
     sma200?: number;
     rsi14?: number;
+    atr14?: number;
   };
   drivers: {
     bullish: string[];
@@ -146,6 +147,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
   const [error, setError] = useState<string | null>(null);
   const [watched, setWatched] = useState(false);
   const [watchBusy, setWatchBusy] = useState(false);
+  const [earnings, setEarnings] = useState<{ earningsDate: string | null; daysUntil: number | null } | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -160,6 +162,19 @@ export function VerdictView({ symbol }: { symbol: string }) {
       setLoading(false);
     }
   };
+
+  // Next earnings date (earnings-calendar awareness)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/earnings?symbol=${encodeURIComponent(symbol)}`);
+        if (res.ok && !cancelled) setEarnings(await res.json());
+        else if (!cancelled) setEarnings(null);
+      } catch { /* earnings banner is optional */ }
+    })();
+    return () => { cancelled = true; };
+  }, [symbol]);
 
   // Is this symbol already on the watchlist?
   useEffect(() => {
@@ -220,9 +235,21 @@ export function VerdictView({ symbol }: { symbol: string }) {
   }
 
   const style = ACTION_STYLES[v.verdict.action] ?? ACTION_STYLES.NEUTRAL;
+  const ed = earnings && earnings.daysUntil != null && earnings.daysUntil <= 21 && earnings.daysUntil >= -1 ? earnings : null;
 
   return (
     <div className="space-y-5">
+      {/* Earnings-proximity banner */}
+      {ed && (
+        <div className="flex items-start gap-2 text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+          <span>
+            <strong className="text-amber-300">Earnings {ed.daysUntil! <= 0 ? 'is today/imminent' : `in ${ed.daysUntil} day${ed.daysUntil === 1 ? '' : 's'}`}</strong>
+            {ed.earningsDate && <> ({new Date(ed.earningsDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})</>}
+            {' — '}verdicts can shift sharply around earnings reports. Treat this rating with extra caution until the numbers are out.
+          </span>
+        </div>
+      )}
       {/* Header + verdict badge */}
       <div className="glass-panel rounded-2xl p-6">
         <div className="flex flex-col lg:flex-row lg:items-center gap-6">
@@ -315,9 +342,20 @@ export function VerdictView({ symbol }: { symbol: string }) {
               <FundStat label="Profit margin" help="netMargin" value={v.fundamentals.netMargin != null ? `${v.fundamentals.netMargin.toFixed(1)}%` : '—'} />
               <FundStat label="Efficiency (ROE)" help="roe" value={v.fundamentals.roe != null ? `${v.fundamentals.roe.toFixed(1)}%` : '—'} />
               <FundStat label="P/E" help="peRatio" value={v.fundamentals.peRatio?.toFixed(1) ?? '—'} />
-              <div className="col-span-2 text-[10px] text-slate-500">Source: {v.fundamentals.source}</div>
+              <div className="col-span-2 text-[10px] text-slate-500">
+                Source: {v.fundamentals.source} ·{' '}
+                <a
+                  href={`https://www.sec.gov/edgar/browse/?CIK=${encodeURIComponent(v.symbol)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-cyan-400 hover:text-cyan-300 underline"
+                >
+                  open the filings on SEC EDGAR ↗
+                </a>
+              </div>
             </div>
           )}
+          <Receipts sentiment="bullish" news={v.drivers.newsItems} technicals={v.technicals} levels={v.levels} />
         </div>
 
         <div className="glass-panel rounded-2xl p-6">
@@ -329,6 +367,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
               <li key={i} className="text-sm text-slate-300 flex gap-2"><AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />{b}</li>
             ))}
           </ul>
+          <Receipts sentiment="bearish" news={v.drivers.newsItems} technicals={v.technicals} levels={v.levels} />
         </div>
       </div>
 
@@ -409,6 +448,84 @@ export function VerdictView({ symbol }: { symbol: string }) {
         <ShieldAlert className="h-3 w-3 inline mr-1 -mt-0.5" />
         {v.disclaimer}
       </div>
+    </div>
+  );
+}
+
+/** "Show the receipts" — expandable evidence behind each driver panel. */
+function Receipts({ sentiment, news, technicals, levels }: {
+  sentiment: 'bullish' | 'bearish';
+  news: { title: string; source: string; url?: string; sentiment: string; score: number }[];
+  technicals: { trend: string; rsi14?: number; sentimentScore?: number };
+  levels: AiVerdict['levels'];
+}) {
+  const [open, setOpen] = useState(false);
+  const relevant = news.filter((n) => n.sentiment === sentiment).sort((a, b) =>
+    sentiment === 'bullish' ? b.score - a.score : a.score - b.score
+  );
+
+  return (
+    <div className="mt-4 pt-4 border-t border-slate-800">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
+        {open ? 'Hide the receipts' : `Show the receipts (${relevant.length} headline${relevant.length === 1 ? '' : 's'} + indicator math)`}
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3 text-xs">
+          {/* News evidence */}
+          {relevant.length > 0 && (
+            <div>
+              <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">
+                {sentiment === 'bullish' ? 'Positive headlines, strongest first' : 'Negative headlines, most concerning first'}
+              </div>
+              <div className="space-y-1.5">
+                {relevant.map((n, i) => (
+                  <div key={i} className="flex items-baseline gap-2">
+                    <span className={`shrink-0 font-mono ${sentiment === 'bullish' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {n.score > 0 ? '+' : ''}{n.score.toFixed(1)}
+                    </span>
+                    {n.url ? (
+                      <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-cyan-300 line-clamp-1">
+                        {n.title}
+                      </a>
+                    ) : (
+                      <span className="text-slate-300 line-clamp-1">{n.title}</span>
+                    )}
+                    <span className="shrink-0 text-slate-600">{n.source}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Indicator math */}
+          <div>
+            <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">Indicator math behind this panel</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-300">
+              <span className="text-slate-500">Trend</span>
+              <span>
+                {technicals.trend === 'up'
+                  ? 'price above SMA50 and SMA50 above SMA200'
+                  : technicals.trend === 'down'
+                    ? 'price below SMA50 and SMA50 below SMA200'
+                    : 'price between its key averages (no clean trend)'}
+              </span>
+              <span className="text-slate-500">RSI(14)</span>
+              <span>{technicals.rsi14 != null ? technicals.rsi14.toFixed(1) : '—'} — {technicals.rsi14 == null ? 'no data' : technicals.rsi14 > 70 ? 'overbought zone (>70)' : technicals.rsi14 > 55 ? 'elevated (55–70)' : technicals.rsi14 < 30 ? 'oversold zone (<30)' : technicals.rsi14 < 45 ? 'soft (30–45)' : 'neutral (45–55)'}</span>
+              {levels.sma50 != null && (<><span className="text-slate-500">SMA 50</span><span>${levels.sma50.toFixed(2)}</span></>)}
+              {levels.sma200 != null && (<><span className="text-slate-500">SMA 200</span><span>${levels.sma200.toFixed(2)}</span></>)}
+              {levels.sma20 != null && (<><span className="text-slate-500">SMA 20</span><span>${levels.sma20.toFixed(2)}</span></>)}
+              {levels.atr14 != null && (<><span className="text-slate-500">ATR(14)</span><span>${levels.atr14.toFixed(2)} — typical daily range</span></>)}
+            </div>
+            <div className="mt-2 text-[10px] text-slate-600">
+              Scoring: trend contributes ±25, RSI position ±15, news sentiment ±25, fundamentals ±35 → final score −100..100.
+              BUY needs ≥35; SELL needs a low score <em>plus</em> two independent bearish confirmations.
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
