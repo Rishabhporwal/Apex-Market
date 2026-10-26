@@ -59,8 +59,8 @@ data/           warehouse.duckdb (gitignored), prices, reports
 - [x] Multi-model ensemble voting + score-evolution chart
 - [x] Filing Q&A — grounded answers from actual 10-K/10-Q text with `[n]` citations (svc-research retrieval → svc-llm grounded prompt; disk-cached filings)
 - [x] Persistent paper portfolio (per-device SQLite state, survives restarts)
-- [ ] Verdict drill-down (show the receipts)
-- [ ] Earnings-calendar awareness
+- [x] Verdict drill-down — "Why this verdict?" panel with per-component receipts
+- [x] Earnings-calendar awareness — caution banner + watchlist badges near report dates
 
 ## License & data
 
