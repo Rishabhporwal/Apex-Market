@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DAILY_DIR = path.join(process.env.DATA_DIR || '/app/data', 'daily-runs');
-const UNIVERSE_SIZE = 15;
+const UNIVERSE_SIZE = 8;
 const UNIVERSE_REFRESH_DAYS = 7;
 const RUN_HOUR_ET = 8; // 08:30 ET = 1 hour before the 9:30 open
 const RUN_MINUTE_ET = 30;
