@@ -26,8 +26,6 @@ name: apexmarket
 
 x-svc-defaults: &svc-defaults
   restart: unless-stopped
-  env_file:
-    - .env.local
   networks: [apexnet]
 
 x-svc-health: &svc-health
@@ -171,6 +169,8 @@ services:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: llm } }
     container_name: apex-llm
+    env_file:
+      - .env.local                    # OPENROUTER_API_KEY — llm is the ONLY service that needs it
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0
@@ -212,7 +212,7 @@ services:
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: gateway } }
     container_name: apex-gateway
     ports:
-      - "8080:8080"                  # the only API entrypoint
+      - "127.0.0.1:8080:8080"                  # the only API entrypoint
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0
@@ -240,7 +240,7 @@ services:
       dockerfile: docker/Dockerfile.web
     container_name: apex-web
     ports:
-      - "3000:3000"                  # user-facing UI
+      - "127.0.0.1:3000:3000"                  # user-facing UI
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0

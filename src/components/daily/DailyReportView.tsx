@@ -19,6 +19,7 @@ interface DailyRow {
   reason?: string;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   cachedAnalysis?: boolean;
+  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; riskPerShare: number | null; rewardRisk: number | null; sharesFor1k: number; maxLossUsd: number | null; lowRR: boolean } | null;
   llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
 }
@@ -253,6 +254,17 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                     <div><span className="text-slate-500">Stop:</span> <span className="text-rose-400 font-semibold">{fmt(r.stopLoss)}</span></div>
                     <div><span className="text-slate-500">Price:</span> <span className="text-white">{fmt(r.price)}</span></div>
                   </div>
+                  {r.tradePlan && (
+                    <div className="mt-2 flex items-center gap-3 flex-wrap text-[11px]">
+                      <span className="text-slate-500">R:R</span>
+                      <span className={`font-semibold ${r.tradePlan.rewardRisk != null && r.tradePlan.rewardRisk >= 1.5 ? 'text-emerald-400' : 'text-amber-400'}`}>{r.tradePlan.rewardRisk != null ? `${r.tradePlan.rewardRisk.toFixed(2)}:1` : '—'}</span>
+                      <span className="text-slate-500">· 1% risk ($10) →</span>
+                      <span className="text-slate-300 font-semibold">{r.tradePlan.sharesFor1k > 0 ? `${r.tradePlan.sharesFor1k} share${r.tradePlan.sharesFor1k === 1 ? '' : 's'}` : '< 1 share'}</span>
+                      <span className="text-slate-500">· max loss</span>
+                      <span className="text-rose-300 font-semibold">${r.tradePlan.maxLossUsd != null ? r.tradePlan.maxLossUsd.toFixed(2) : '—'}</span>
+                      {r.tradePlan.lowRR && <span className="text-amber-400" title="Reward-to-risk below 1.5 — the plan targets less than 1.5x what you risk">⚠ thin R:R</span>}
+                    </div>
+                  )}
                   {r.reason && <p className="mt-2 text-[11px] text-slate-500 line-clamp-2">{r.reason}</p>}
                 </div>
                 <ArrowUpRight className="h-4 w-4 text-slate-600 group-hover:text-cyan-400 transition shrink-0 mt-1" />

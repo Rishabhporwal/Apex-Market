@@ -16,16 +16,20 @@ export function sma(values, period) {
 
 export function rsi(closes, period = 14) {
   if (closes.length < period + 1) return undefined;
-  let gains = 0;
-  let losses = 0;
+  // Wilder smoothing (industry standard — matches TradingView/broker charts).
+  let avgGain = 0;
+  let avgLoss = 0;
   const window = closes.slice(-(period + 1));
   for (let i = 1; i < window.length; i++) {
     const diff = window[i] - window[i - 1];
-    if (diff > 0) gains += diff;
-    else losses -= diff;
+    if (i === 1) {
+      avgGain = Math.max(0, diff);
+      avgLoss = Math.max(0, -diff);
+      continue;
+    }
+    avgGain = (avgGain * (period - 1) + Math.max(0, diff)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(0, -diff)) / period;
   }
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
   if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
   const rs = avgGain / avgLoss;
   return 100 - 100 / (1 + rs);

@@ -295,6 +295,20 @@ app.get('/readyz', async () => {
   return { ok: true, service: 'api-gateway', upstreams };
 });
 
+// ---- Optional bearer-token auth (defense-in-depth) --------------------------
+// When GATEWAY_TOKEN is set, every non-health request must present it. Ports
+// are loopback-bound in compose, so this mainly guards against LAN exposure.
+if (process.env.GATEWAY_TOKEN) {
+  app.addHook('onRequest', async (req, reply) => {
+    if (req.url.startsWith('/healthz')) return;
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : req.headers['x-gateway-token'];
+    if (token !== process.env.GATEWAY_TOKEN) {
+      return reply.status(401).send({ error: 'unauthorized' });
+    }
+  });
+}
+
 await app.listen({ port: PORT, host: process.env.SERVICE_BIND || '127.0.0.1' });
 log.info({ msg: `api-gateway listening on :${PORT}`, port: PORT });
 

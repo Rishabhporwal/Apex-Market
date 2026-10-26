@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-26.1';
+const VERDICT_ENGINE_VERSION = '2026-10-27.1'; // Wilder RSI
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
@@ -335,6 +335,31 @@ async function generateVerdict(symbol, ctx, opts = {}) {
 
   const summary = buildSummary(clean, name, action, score, trend, rsi14, news.sentimentScore);
 
+  // ---- Risk plan: computed numbers, not prose (P0-2 audit fix) --------------
+  // stop/target come from levels (pivot + 2*ATR); entry is the nearest support
+  // below price, else price - 0.5*ATR. R:R and $1k-account sizing are computed
+  // server-side so the UI never shows an LLM-authored trade plan.
+  const atr14v = levels?.atr14;
+  const supBelow = (supports || []).filter((s) => s < price).sort((a, b) => b - a)[0];
+  const entryLow = supBelow ?? (atr14v ? price - 0.5 * atr14v : null);
+  const stop = stopTargets.stopLoss;
+  const riskPerShare = stop != null && stop < price ? price - stop : null;
+  const rr1 = riskPerShare && stopTargets.target1 != null ? (stopTargets.target1 - price) / riskPerShare : null;
+  const shares1k = riskPerShare ? Math.max(0, Math.floor(10 / riskPerShare)) : 0; // risk 1% of $1,000
+  const tradePlan = {
+    entry: entryLow != null ? Number(entryLow.toFixed(2)) : null,
+    entryHigh: Math.round(price * 100) / 100,
+    stop: stop != null ? Number(stop.toFixed(2)) : null,
+    target1: stopTargets.target1 != null ? Number(stopTargets.target1.toFixed(2)) : null,
+    target2: stopTargets.target2 != null ? Number(stopTargets.target2.toFixed(2)) : null,
+    riskPerShare: riskPerShare != null ? Number(riskPerShare.toFixed(2)) : null,
+    rewardRisk: rr1 != null ? Number(rr1.toFixed(2)) : null,
+    sharesFor1k: shares1k,
+    maxLossUsd: shares1k > 0 && riskPerShare ? Number((shares1k * riskPerShare).toFixed(2)) : null,
+    lowRR: rr1 != null && rr1 < 1.5,
+    gapWarning: 'Stops are not guaranteed on gaps — size for the gap, not the stop.',
+  };
+
   // ---- AiVerdict shape (src/types/verdict.ts) ------------------------------
   return {
     symbol: clean,
@@ -343,6 +368,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
     asOf: Date.now(),
     verdict: { action, confidence, horizon, summary },
     tradeWindow,
+    tradePlan,
     breakdown: quant.breakdown,
     earnings,
     meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION, llmUsage },
