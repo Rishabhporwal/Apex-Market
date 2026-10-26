@@ -204,6 +204,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   let narrative;
   let llmTone;
   let ensemble = null;
+  let llmUsage = null;
   let researchFromCache = false;
   if (depth === 'full' && process.env.OPENROUTER_API_KEY) {
     const cached = opts.refresh ? null : readResearchCache(clean, earnings?.earningsDate || null);
@@ -211,6 +212,9 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       narrative = cached.narrative;
       ensemble = cached.ensemble || null;
       llmTone = cached.tone;
+      // The cache records what the analysis cost when it was generated — a
+      // cached verdict reports that historical spend, not $0.
+      llmUsage = cached.usage || null;
       researchFromCache = true;
     } else {
       try {
@@ -230,10 +234,11 @@ async function generateVerdict(symbol, ctx, opts = {}) {
         });
         narrative = llm?.narrative || llm?.deepAnalysis;
         ensemble = llm?.votes ? { consensus: llm.consensus, agreeing: llm.agreeing, of: llm.of, votes: llm.votes } : null;
+        llmUsage = llm?.usage || null;
         // Majority tone feeds the soft vote
         llmTone = llm?.consensus === 'BUY' ? 'BULLISH' : llm?.consensus === 'SELL' ? 'BEARISH' : llm?.consensus === 'HOLD' ? 'NEUTRAL' : undefined;
         if (narrative) {
-          writeResearchCache(clean, earnings?.earningsDate || null, { narrative, ensemble, tone: llmTone });
+          writeResearchCache(clean, earnings?.earningsDate || null, { narrative, ensemble, tone: llmTone, usage: llmUsage });
         }
       } catch (err) {
         appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM ensemble failed for ${clean}: ${err.message}` });
@@ -280,7 +285,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
     verdict: { action, confidence, horizon, summary },
     breakdown: quant.breakdown,
     earnings,
-    meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION },
+    meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION, llmUsage },
     levels: {
       target1: stopTargets.target1,
       target2: stopTargets.target2,

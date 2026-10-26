@@ -22,16 +22,24 @@ const costCounters = new Map(); // model -> {calls, promptTokens, completionToke
 // Rough list-price estimates ($/1M tokens) for cost accounting only.
 const MODEL_PRICE_ESTIMATES = {
   'deepseek/deepseek-v3.2': { in: 0.28, out: 0.42 },
+  'z-ai/glm-5.3-flash': { in: 0.11, out: 0.44 },
+  'qwen/qwen3-32b': { in: 0.29, out: 0.88 },
   default: { in: 1.0, out: 2.0 },
 };
+
+/** One-call cost estimate ($/1M in + out from the table above). */
+function costOf(model, promptTokens, completionTokens) {
+  const price = MODEL_PRICE_ESTIMATES[model] || MODEL_PRICE_ESTIMATES.default;
+  const usd = ((promptTokens || 0) / 1e6) * price.in + ((completionTokens || 0) / 1e6) * price.out;
+  return Number(usd.toFixed(6));
+}
 
 function recordCost(model, promptTokens, completionTokens) {
   const m = costCounters.get(model) || { calls: 0, promptTokens: 0, completionTokens: 0, estimatedCostUsd: 0 };
   m.calls += 1;
   m.promptTokens += promptTokens || 0;
   m.completionTokens += completionTokens || 0;
-  const price = MODEL_PRICE_ESTIMATES[model] || MODEL_PRICE_ESTIMATES.default;
-  m.estimatedCostUsd = Number(((m.promptTokens / 1e6) * price.in + (m.completionTokens / 1e6) * price.out).toFixed(6));
+  m.estimatedCostUsd = Number((m.estimatedCostUsd + costOf(model, promptTokens, completionTokens)).toFixed(6));
   costCounters.set(model, m);
 }
 
@@ -90,6 +98,11 @@ async function callOpenRouterModel(data, apiKey, model, log) {
     providerUsed: `OpenRouter (${modelLabel})`,
     model,
     deepAnalysis: text,
+    usage: {
+      promptTokens: json.usage?.prompt_tokens ?? 0,
+      completionTokens: json.usage?.completion_tokens ?? 0,
+      costUsd: costOf(model, json.usage?.prompt_tokens, json.usage?.completion_tokens),
+    },
     keyRisks: [
       'Overhead technical resistance cluster.',
       'Regulatory and macro liquidity tailwinds/tailwinds may shift quickly.',
@@ -192,6 +205,7 @@ async function ensembleOne(data, apiKey, model, log) {
       confidenceGuess: c ? Math.min(100, Number(c[1])) : null,
       providerUsed: out.providerUsed,
       deepAnalysis: out.deepAnalysis,
+      usage: out.usage || null,
     };
   } catch (err) {
     return { model, error: err.message };
@@ -259,6 +273,24 @@ app.post('/ensemble', async (req, reply) => {
   const tally = {};
   for (const v of valid) tally[v.verdict] = (tally[v.verdict] || 0) + 1;
   const consensus = Object.entries(tally).sort((a, b2) => b2[1] - a[1])[0]?.[0] || null;
+  // Per-run cost accounting: exact usage from OpenRouter when reported, exact
+  // token estimate (chars/4) otherwise — never silently omitted.
+  const usage = votes.map((v) => ({
+    model: v.model,
+    error: v.error || null,
+    promptTokens: v.usage?.promptTokens ?? estimateTokens(v),
+    completionTokens: v.usage?.completionTokens ?? estimateTokens(v, 'out'),
+    costUsd: v.usage?.costUsd ?? null,
+  }));
+  for (const u of usage) {
+    if (u.costUsd == null) u.costUsd = costOf(u.model, u.promptTokens, u.completionTokens);
+  }
+  const llmUsage = {
+    models: usage,
+    totalPromptTokens: usage.reduce((a, u) => a + u.promptTokens, 0),
+    totalCompletionTokens: usage.reduce((a, u) => a + u.completionTokens, 0),
+    totalCostUsd: Number(usage.reduce((a, u) => a + u.costUsd, 0).toFixed(6)),
+  };
   return {
     consensus,
     agreeing: consensus ? tally[consensus] : 0,
@@ -266,8 +298,15 @@ app.post('/ensemble', async (req, reply) => {
     votes: votes.map(({ model, verdict, confidenceGuess, error }) => ({ model, verdict, confidenceGuess, error })),
     narrative: valid[0]?.deepAnalysis,
     providerUsed: valid[0]?.providerUsed,
+    usage: llmUsage,
   };
 });
+
+/** chars/4 fallback when OpenRouter omits usage on a vote. */
+function estimateTokens(vote, kind = 'in') {
+  const text = vote.deepAnalysis || '';
+  return kind === 'in' ? 900 : Math.round(text.length / 4);
+}
 
 /**
  * POST /research — port of src/app/api/ai-research/route.ts as a service route.

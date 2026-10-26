@@ -221,6 +221,7 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
         // Full depth: news + LLM narrative (writes the research cache — the
         // daily run IS the cache warmer for the day).
         const v = await deps.generateVerdict(u.symbol, ctx, { depth: 'full' });
+        const llmUsage = v.meta?.llmUsage || null;
         results.push({
           symbol: v.symbol,
           name: v.name,
@@ -236,6 +237,12 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
           reason: v.verdict.summary,
           earnings: v.earnings || null,
           cachedAnalysis: !!v.meta?.researchCached,
+          // Token & cost accounting for this symbol's research (zero when the
+          // narrative came from the 24h research cache — that spend happened
+          // once, on the run that wrote the cache).
+          llm: llmUsage
+            ? { promptTokens: llmUsage.totalPromptTokens, completionTokens: llmUsage.totalCompletionTokens, costUsd: llmUsage.totalCostUsd, models: llmUsage.models.map((m) => ({ model: m.model, promptTokens: m.promptTokens, completionTokens: m.completionTokens, costUsd: m.costUsd })) }
+            : { promptTokens: 0, completionTokens: 0, costUsd: 0, models: [] },
         });
       } catch (err) {
         results.push({ symbol: u.symbol, name: u.name, error: err.message });
@@ -247,6 +254,16 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
     succeeded.sort((a, b) => (b.score ?? b.confidence) - (a.score ?? a.confidence));
     const ordered = [...succeeded, ...results.filter((r) => r.error)];
 
+    const runUsage = results.reduce(
+      (a, r) => ({
+        promptTokens: a.promptTokens + (r.llm?.promptTokens || 0),
+        completionTokens: a.completionTokens + (r.llm?.completionTokens || 0),
+        costUsd: a.costUsd + (r.llm?.costUsd || 0),
+      }),
+      { promptTokens: 0, completionTokens: 0, costUsd: 0 }
+    );
+    runUsage.costUsd = Number(runUsage.costUsd.toFixed(6));
+
     const report = {
       date: new Date().toISOString().slice(0, 10),
       ranAt: startedAt,
@@ -255,6 +272,8 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
       universeWeek: universe.weekTag,
       universeBuiltAt: universe.builtAt,
       count: succeeded.length,
+      // Whole-run token & cost accounting (sum of per-symbol research).
+      llmUsage: runUsage,
       results: ordered,
     };
     fs.mkdirSync(DAILY_DIR, { recursive: true });
@@ -279,7 +298,8 @@ function deliverReportWebhook(report) {
       return `${i + 1}. ${r.symbol} ${r.action} ${r.confidence}%${zone}${stop} — ${r.reason}`;
     });
   const failed = report.results.filter((r) => r.error).length;
-  const text = `📊 Daily Top-15 research (${report.date})\n${lines.join('\n')}${failed ? `\n(${failed} symbol(s) failed)` : ''}`;
+  const cost = report.llmUsage ? ` (~${Math.round((report.llmUsage.totalPromptTokens + report.llmUsage.totalCompletionTokens) / 1000)}k tokens, $${report.llmUsage.totalCostUsd.toFixed(4)})` : '';
+  const text = `📊 Daily Top-5 research (${report.date})${cost}\n${lines.join('\n')}${failed ? `\n(${failed} symbol(s) failed)` : ''}`;
   fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

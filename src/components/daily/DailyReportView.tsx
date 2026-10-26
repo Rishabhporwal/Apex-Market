@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle, CheckCircle2, Coins } from 'lucide-react';
 
 interface DailyRow {
   symbol: string;
@@ -18,6 +18,7 @@ interface DailyRow {
   reason?: string;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   cachedAnalysis?: boolean;
+  llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
 }
 
@@ -30,6 +31,7 @@ interface DailyReport {
   count?: number;
   universeWeek?: string;
   nextRunAt?: string;
+  llmUsage?: { promptTokens: number; completionTokens: number; costUsd: number; models?: unknown[] };
   results?: DailyRow[];
 }
 
@@ -163,6 +165,16 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                     {r.cachedAnalysis && (
                       <span className="text-[10px] text-slate-600" title="Narrative reused from today's run — prices and levels are live">cached analysis</span>
                     )}
+                    {r.llm && (
+                      <span
+                        className="text-[10px] text-slate-600"
+                        title={(r.llm.models || []).map((m) => `${m.model}: ${m.promptTokens + m.completionTokens} tokens ($${m.costUsd.toFixed(4)})`).join('\n') || 'no LLM spend — cached narrative'}
+                      >
+                        {r.llm.promptTokens + r.llm.completionTokens > 0
+                          ? `${((r.llm.promptTokens + r.llm.completionTokens) / 1000).toFixed(1)}k tok · $${r.llm.costUsd.toFixed(4)}`
+                          : '0 tok · $0.00 (cached)'}
+                      </span>
+                    )}
                   </div>
                   <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-[11px]">
                     <div><span className="text-slate-500">Buy zone:</span> <span className="text-emerald-300 font-semibold">{r.buyZone || '—'}</span></div>
@@ -179,6 +191,17 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
           {failed.length > 0 && (
             <div className="text-[11px] text-slate-600 flex items-center gap-2 px-1">
               <AlertTriangle className="h-3.5 w-3.5" /> {failed.length} symbol(s) failed this run: {failed.map((f) => f.symbol).join(', ')}
+            </div>
+          )}
+          {report.llmUsage && (
+            <div className="text-[11px] text-slate-500 flex items-center gap-2 px-1 pt-2 border-t border-slate-800/60 mt-2 pt-3">
+              <Coins className="h-3.5 w-3.5 text-amber-500/70" />
+              <span>
+                Run cost: <strong className="text-slate-300">${report.llmUsage.costUsd.toFixed(4)}</strong>
+                {' '}· {((report.llmUsage.promptTokens + report.llmUsage.completionTokens) / 1000).toFixed(1)}k tokens
+                ({(report.llmUsage.promptTokens / 1000).toFixed(1)}k in / {(report.llmUsage.completionTokens / 1000).toFixed(1)}k out)
+                · ~${(report.llmUsage.costUsd * 21).toFixed(2)}/mo at ~21 trading days
+              </span>
             </div>
           )}
           <div className="text-[11px] text-slate-600 flex items-center gap-1.5 px-1 pt-1">
