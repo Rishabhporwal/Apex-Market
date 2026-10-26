@@ -55,7 +55,10 @@ data/           warehouse.duckdb (gitignored), prices, reports
 - [x] AI verdict engine with levels/targets/stops + strategy plan
 - [x] 9-service mesh with tracing + docker compose
 - [x] Verdict backtester with honest methodology
-- [ ] Watchlists + verdict-change alerts
+- [x] Watchlists + verdict-change alerts (svc-userdata, per-device)
+- [x] Multi-model ensemble voting + score-evolution chart
+- [x] Filing Q&A — grounded answers from actual 10-K/10-Q text with `[n]` citations (svc-research retrieval → svc-llm grounded prompt; disk-cached filings)
+- [x] Persistent paper portfolio (per-device SQLite state, survives restarts)
 - [ ] Verdict drill-down (show the receipts)
 - [ ] Earnings-calendar awareness
 

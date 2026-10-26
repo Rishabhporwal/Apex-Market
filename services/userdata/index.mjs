@@ -67,6 +67,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_history_symbol ON verdict_history (symbol, checked_at);
   CREATE INDEX IF NOT EXISTS idx_alerts_client ON alerts (client_id, seen);
+  -- Paper-portfolio persistence: the BFF (portfolioService) owns all trade
+  -- logic (cash checks, avg-price math) and stores the whole state blob here.
+  -- svc-userdata is a dumb durable store for it — no validation beyond shape.
+  CREATE TABLE IF NOT EXISTS portfolio_state (
+    client_id  TEXT PRIMARY KEY,
+    state      TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 // ---- Identity ---------------------------------------------------------------
@@ -281,6 +289,40 @@ app.get('/history/:symbol', async (req, reply) => {
 });
 
 app.post('/check-now', async () => runCheckCycle('check-now'));
+
+// ---- Paper-portfolio state store (blob per client) --------------------------
+const getPortfolio = db.prepare('SELECT state, updated_at FROM portfolio_state WHERE client_id = ?');
+const upsertPortfolio = db.prepare(`
+  INSERT INTO portfolio_state (client_id, state, updated_at) VALUES (?, ?, ?)
+  ON CONFLICT(client_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at
+`);
+const MAX_PORTFOLIO_BYTES = 256 * 1024;
+
+app.get('/portfolio', async (req) => {
+  const clientId = clientIdFor(req);
+  const row = getPortfolio.get(clientId);
+  if (!row) return { state: null, updatedAt: null };
+  try {
+    return { state: JSON.parse(row.state), updatedAt: row.updated_at };
+  } catch {
+    // Corrupt blob (shouldn't happen): report honestly rather than crash.
+    return { state: null, updatedAt: null };
+  }
+});
+
+app.put('/portfolio', async (req, reply) => {
+  const clientId = clientIdFor(req);
+  const state = req.body?.state;
+  if (!state || typeof state !== 'object' || Array.isArray(state)) {
+    return reply.status(400).send({ error: 'body must be {state: object}' });
+  }
+  const json = JSON.stringify(state);
+  if (Buffer.byteLength(json) > MAX_PORTFOLIO_BYTES) {
+    return reply.status(413).send({ error: 'portfolio state too large' });
+  }
+  upsertPortfolio.run(clientId, json, Date.now());
+  return { saved: true, updatedAt: Date.now() };
+});
 
 await listen();
 log.info({ msg: `svc-userdata ready, db=${DB_PATH}` });

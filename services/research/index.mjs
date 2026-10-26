@@ -618,10 +618,33 @@ function selectChunks(index, question, topN) {
       if (!tf) continue;
       score += tf * q * (idf.get(w) || 0);
     }
+    // Section-label boost: a question term appearing in the chunk's Item label
+    // ("risk" in "Item 1A. Risk Factors") is strong topical evidence — the label
+    // is hand-written by the filer. Bonus = 3 × IDF per matched label term.
+    if (c.section) {
+      const labelTf = new Map();
+      for (const w of tokenize(c.section)) labelTf.set(w, (labelTf.get(w) || 0) + 1);
+      for (const [w, q] of qtf) {
+        if (labelTf.has(w)) score += 3 * q * (idf.get(w) || 1.5);
+      }
+    }
     return { score, chunk: c };
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topN);
+}
+
+/** Distinct question terms actually matched anywhere in the given chunks. */
+function matchedTermCount(index, question, chunks) {
+  const qTerms = new Set(tokenize(question));
+  if (qTerms.size === 0) return 0;
+  let matched = new Set();
+  for (const c of chunks) {
+    for (const w of qTerms) {
+      if (c.tf.get(w) || (c.section && tokenize(c.section).includes(w))) matched.add(w);
+    }
+  }
+  return matched.size;
 }
 
 // ---- HTTP surface ----
@@ -792,7 +815,11 @@ app.get('/filing-context/:symbol', async (req, reply) => {
 
     // 5. Score and select the top 6 chunks.
     const top = selectChunks(index, question, CHUNKS_RETURNED);
-    if (top.length === 0 || top.every((s) => s.score === 0)) {
+    // Honest not-found: don't send the LLM excerpts that share essentially no
+    // vocabulary with the question. Require at least 2 distinct matched terms
+    // (1 for single-term questions) across the selected chunks.
+    const minMatched = Math.min(2, new Set(tokenize(question)).size);
+    if (top.length === 0 || matchedTermCount(index, question, top.map((s) => s.chunk)) < minMatched) {
       return reply.status(404).send({ error: 'no relevant sections found in the filing for that question' });
     }
 

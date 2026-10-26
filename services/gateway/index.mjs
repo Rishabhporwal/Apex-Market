@@ -232,6 +232,10 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/alerts')) {
     serviceName = 'userdata';
     downstreamPath = url.replace(/^\/api/, '');
+  } else if (url.startsWith('/api/portfolio-state')) {
+    // Paper-portfolio persistence blob → svc-userdata /portfolio (GET/PUT).
+    serviceName = 'userdata';
+    downstreamPath = url.replace(/^\/api\/portfolio-state/, '/portfolio');
   } else if (url.startsWith('/api/registry/services')) {
     serviceName = 'svc-registry';
     downstreamPath = url.replace(/^\/api\/registry/, '');
