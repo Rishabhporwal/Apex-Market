@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.1'; // Wilder RSI
+const VERDICT_ENGINE_VERSION = '2026-10-27.2'; // Wilder RSI + calibrated confidence + target geometry
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
@@ -167,7 +167,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       }
     : undefined;
   const quant = scoreVerdict({ price, candles, sentimentScore: news.sentimentScore, fundamentals: fundSrc });
-  const { score, confidence } = quant;
+  const { score, confidence, calibrated: confidenceCalibrated } = quant;
   let action = quant.action;
   const trend = quant.trend;
   const rsi14 = levels?.rsi14 ?? quant.rsi14;
@@ -344,19 +344,67 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   const entryLow = supBelow ?? (atr14v ? price - 0.5 * atr14v : null);
   const stop = stopTargets.stopLoss;
   const riskPerShare = stop != null && stop < price ? price - stop : null;
-  const rr1 = riskPerShare && stopTargets.target1 != null ? (stopTargets.target1 - price) / riskPerShare : null;
   const shares1k = riskPerShare ? Math.max(0, Math.floor(10 / riskPerShare)) : 0; // risk 1% of $1,000
+
+  // ---- Target geometry (target-geometry audit fix) ---------------------------
+  // If the structure target1 yields < 1.5R, extend target1 to at least
+  // price ± 1.5*riskPerShare and target2 to at least price ± 2.5*riskPerShare
+  // (2dp) — BUT only within structure: an extended target may not reach past
+  // the nearest overhead resistance (long side) / nearest support below
+  // (short side, mirrored) by more than 1 ATR. If even 1.5R is unreachable
+  // within structure, the plan is NOT tradable at current levels — wait.
+  // (Mirrored short-side handling is the same audit rationale applied to SELL
+  // plans; BUY/long geometry matches the audit text verbatim.)
+  let target1 = stopTargets.target1 ?? null;
+  let target2 = stopTargets.target2 ?? null;
+  let tradable = true;
+  let geometryNote;
+  let rewardRisk = riskPerShare && target1 != null ? ((target1 - price) / riskPerShare) : null;
+  if (target1 != null && riskPerShare != null && riskPerShare > 0) {
+    const long = target1 > price;
+    const structLvl = long
+      ? (resistances || []).filter((r) => r > price).sort((a, b) => a - b)[0]
+      : (supports || []).filter((s) => s < price).sort((a, b) => b - a)[0];
+    // Structure ceiling/floor: nearest structure level ± 1 ATR of tolerance.
+    const cap = structLvl != null ? (long ? structLvl + (atr14v ?? 0) : structLvl - (atr14v ?? 0)) : (long ? Infinity : -Infinity);
+    if (rewardRisk != null && Math.abs(rewardRisk) < 1.5) {
+      const ext1 = long ? price + 1.5 * riskPerShare : price - 1.5 * riskPerShare;
+      const ext2 = long ? price + 2.5 * riskPerShare : price - 2.5 * riskPerShare;
+      const ext1WithinStructure = long ? ext1 <= cap : ext1 >= cap;
+      if (ext1WithinStructure) {
+        target1 = long ? Math.max(target1, ext1) : Math.min(target1, ext1);
+        // target2: extend to 2.5R only when that also stays within structure;
+        // otherwise keep the structure target but stay monotonic vs target1.
+        const ext2WithinStructure = long ? ext2 <= cap : ext2 >= cap;
+        if (ext2WithinStructure) {
+          target2 = long ? Math.max(target2 ?? target1, ext2) : Math.min(target2 ?? target1, ext2);
+        } else {
+          target2 = target2 != null ? (long ? Math.max(target2, target1) : Math.min(target2, target1)) : target1;
+        }
+        rewardRisk = (target1 - price) / riskPerShare;
+      } else {
+        tradable = false;
+        geometryNote = 'no valid plan at current levels — wait';
+      }
+    }
+  }
+  const rr1 = rewardRisk;
+
   const tradePlan = {
     entry: entryLow != null ? Number(entryLow.toFixed(2)) : null,
     entryHigh: Math.round(price * 100) / 100,
     stop: stop != null ? Number(stop.toFixed(2)) : null,
-    target1: stopTargets.target1 != null ? Number(stopTargets.target1.toFixed(2)) : null,
-    target2: stopTargets.target2 != null ? Number(stopTargets.target2.toFixed(2)) : null,
+    target1: target1 != null ? Number(target1.toFixed(2)) : null,
+    target2: target2 != null ? Number(target2.toFixed(2)) : null,
     riskPerShare: riskPerShare != null ? Number(riskPerShare.toFixed(2)) : null,
-    rewardRisk: rr1 != null ? Number(rr1.toFixed(2)) : null,
+    rewardRisk: rr1 != null ? Number(Math.abs(rr1).toFixed(2)) : null,
     sharesFor1k: shares1k,
     maxLossUsd: shares1k > 0 && riskPerShare ? Number((shares1k * riskPerShare).toFixed(2)) : null,
-    lowRR: rr1 != null && rr1 < 1.5,
+    lowRR: rr1 != null && Math.abs(rr1) < 1.5,
+    // Geometry audit: false = even 1.5R is unreachable within structure — the
+    // daily report and UI should treat this as "wait", not a tradeable plan.
+    tradable,
+    ...(geometryNote ? { note: geometryNote } : {}),
     gapWarning: 'Stops are not guaranteed on gaps — size for the gap, not the stop.',
   };
 
@@ -366,12 +414,12 @@ async function generateVerdict(symbol, ctx, opts = {}) {
     name,
     price: Math.round(price * 100) / 100,
     asOf: Date.now(),
-    verdict: { action, confidence, horizon, summary },
+    verdict: { action, confidence, calibrated: confidenceCalibrated, horizon, summary },
     tradeWindow,
     tradePlan,
     breakdown: quant.breakdown,
     earnings,
-    meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION, llmUsage },
+    meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION, llmUsage, calibrated: confidenceCalibrated },
     levels: {
       target1: stopTargets.target1,
       target2: stopTargets.target2,
@@ -482,6 +530,7 @@ app.post('/daily-report/run', async (req, reply) => {
     const report = await runDailyReport('manual', req.traceCtx);
     return reply.status(report.skipped ? 409 : 200).send(report);
   } catch (err) {
+    appLog.warn({ requestId: req.traceCtx?.requestId, msg: `daily-report/run failed: ${err.message}`, error: err.message, stack: err.stack });
     return reply.status(502).send({ error: err.message });
   }
 });

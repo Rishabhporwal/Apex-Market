@@ -1,37 +1,124 @@
 {
-  "generatedAt": "2026-10-18T11:45:17.335Z",
+  "generatedAt": "2026-10-26T22:30:47.867Z",
   "config": {
     "years": 3,
     "horizonDays": 90,
-    "universe": 120,
+    "universe": 150,
+    "transactionCostBpsPerSide": 10,
+    "fundamentalsGate": "filed_at <= asOf (filing date); legacy NULL-filed_at rows use a conservative 45-day post-period-end approximation",
     "note": "Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound."
   },
   "totals": {
-    "signals": 3660,
-    "tickersTested": 120,
-    "tickersSkipped": 0
+    "signals": 4405,
+    "tickersTested": 144,
+    "tickersSkipped": 6
   },
   "actions": {
     "BUY": {
-      "n": 28,
-      "avgForwardReturn": 1.28,
-      "median": -0.03,
-      "winRate": 46.4,
-      "spyAvgSameWindows": 1.3
+      "n": 1016,
+      "avgForwardReturn": 3.15,
+      "median": 1.87,
+      "winRate": 56.4,
+      "spyAvgSameWindows": 3.49,
+      "avgAlpha": -0.34,
+      "netOfCosts": {
+        "costBpsRoundTrip": 20,
+        "avgReturn": 2.95,
+        "winRate": 55.9,
+        "avgAlpha": -0.55,
+        "note": "long"
+      }
     },
     "HOLD": {
-      "n": 3624,
-      "avgForwardReturn": 4.46,
-      "median": 2.7,
-      "winRate": 58.1,
-      "spyAvgSameWindows": 4.49
+      "n": 3228,
+      "avgForwardReturn": 4.64,
+      "median": 2.5,
+      "winRate": 57.3,
+      "spyAvgSameWindows": 4.2,
+      "avgAlpha": 0.44
     },
     "SELL": {
-      "n": 8,
-      "avgForwardReturn": 1.85,
-      "median": -4.45,
-      "winRate": 37.5,
-      "spyAvgSameWindows": -2.65
+      "n": 161,
+      "avgForwardReturn": 6.19,
+      "median": 2.45,
+      "winRate": 57.8,
+      "spyAvgSameWindows": 4.9,
+      "avgAlpha": 1.29,
+      "netOfCosts": {
+        "costBpsRoundTrip": 20,
+        "avgReturn": -6.39,
+        "winRate": 41.6,
+        "avgAlpha": -11.29,
+        "note": "short interpretation: gross = -forward return"
+      }
+    }
+  },
+  "legacy": {
+    "note": "Pre-fix method: period-end gating + fy='FY' query bug → fundamentals never reached the scorer; no transaction costs.",
+    "actions": {
+      "BUY": {
+        "n": 15,
+        "avgForwardReturn": 2.52,
+        "winRate": 40,
+        "spyAvgSameWindows": 3.7,
+        "avgAlpha": -1.18
+      },
+      "HOLD": {
+        "n": 4372,
+        "avgForwardReturn": 4.36,
+        "winRate": 57.2,
+        "spyAvgSameWindows": 4.05,
+        "avgAlpha": 0.31
+      },
+      "SELL": {
+        "n": 18,
+        "avgForwardReturn": 4.5,
+        "winRate": 50,
+        "spyAvgSameWindows": 7.33,
+        "avgAlpha": -2.84
+      }
+    }
+  },
+  "calibration": {
+    "<-35": {
+      "n": 49,
+      "hits": 30,
+      "stoppedFirst": 19,
+      "neitherInHorizon": 0,
+      "hitRate": 61.2,
+      "confidence": 61
+    },
+    "-35..-15": {
+      "n": 264,
+      "hits": 157,
+      "stoppedFirst": 107,
+      "neitherInHorizon": 0,
+      "hitRate": 59.5,
+      "confidence": 59
+    },
+    "-15..15": {
+      "n": 1511,
+      "hits": 1016,
+      "stoppedFirst": 493,
+      "neitherInHorizon": 2,
+      "hitRate": 67.2,
+      "confidence": 67
+    },
+    "15..35": {
+      "n": 1565,
+      "hits": 1001,
+      "stoppedFirst": 564,
+      "neitherInHorizon": 0,
+      "hitRate": 64,
+      "confidence": 64
+    },
+    ">=35": {
+      "n": 1016,
+      "hits": 660,
+      "stoppedFirst": 356,
+      "neitherInHorizon": 0,
+      "hitRate": 65,
+      "confidence": 65
     }
   },
   "perTickerSample": [
@@ -56,7 +143,7 @@
       "signals": 31
     },
     {
-      "ticker": "GOOGL",
+      "ticker": "GOOG",
       "signals": 31
     },
     {
@@ -81,10 +168,6 @@
     },
     {
       "ticker": "CAH",
-      "signals": 31
-    },
-    {
-      "ticker": "BRK-B",
       "signals": 31
     },
     {
@@ -113,6 +196,10 @@
     },
     {
       "ticker": "CNC",
+      "signals": 31
+    },
+    {
+      "ticker": "GM",
       "signals": 31
     }
   ]

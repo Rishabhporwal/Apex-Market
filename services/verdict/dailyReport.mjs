@@ -127,6 +127,9 @@ async function qualityRanked(ctx) {
     .map((r) => ({
       symbol: r.symbol,
       name: r.name,
+      // Sector threads through to the daily-report pool sort (1 name per
+      // sector cap). Screener rows always carry it ('Unknown' fallback).
+      sector: r.sector ?? null,
       qualityScore: qualityScore(r),
       metrics: {
         revenueGrowthYoY: r.revenueGrowthYoY,
@@ -139,13 +142,18 @@ async function qualityRanked(ctx) {
     .sort((a, b) => b.qualityScore - a.qualityScore || (b.metrics.marketCap || 0) - (a.metrics.marketCap || 0));
 }
 
+// Liquidity floor (selection-hygiene audit): a candidate whose dollar volume
+// (quote avgVolume * price) is under $5M is untradable for small accounts —
+// spreads and slippage dominate. Skipped during the hygiene walk.
+const MIN_DOLLAR_VOLUME_USD = 5_000_000;
+
 /**
  * Hygiene walk: walk a fundamentals-ranked candidate list, fetching each
  * candidate's LIVE quote (price + name), until `count` pass the investable
- * filters (no derivatives by ticker or name, $5 floor, $400 cap). Unpriced
- * candidates are skipped without aborting the walk.
+ * filters (no derivatives by ticker or name, $5 floor, $400 cap, $5M dollar-
+ * volume floor). Unpriced candidates are skipped without aborting the walk.
  */
-async function hygieneWalk(ranked, count, ctx, exclude = new Set()) {
+async function hygieneWalk(ranked, count, ctx, exclude = new Set()) { // exported below for tests
   const { resolveService, httpClient, appLog } = deps;
   const mdBase = await resolveService('market-data', ctx).catch(() => null);
   const picked = [];
@@ -173,7 +181,13 @@ async function hygieneWalk(ranked, count, ctx, exclude = new Set()) {
       continue;
     }
     if (q.price < MIN_SHARE_PRICE || q.price >= MAX_SHARE_PRICE) continue;
+    const dollarVolume = (q.avgVolume || 0) * q.price;
+    if (dollarVolume < MIN_DOLLAR_VOLUME_USD) {
+      appLog.info({ span: 'verdict.daily', msg: `universe walk: ${cand.symbol} rejected (dollar volume $${Math.round(dollarVolume).toLocaleString()} < $${MIN_DOLLAR_VOLUME_USD.toLocaleString()})` });
+      continue;
+    }
     cand.metrics.price = q.price;
+    cand.metrics.dollarVolume = Math.round(dollarVolume);
     cand.name = q.name || cand.name;
     picked.push(cand);
   }
@@ -184,7 +198,7 @@ async function hygieneWalk(ranked, count, ctx, exclude = new Set()) {
 async function buildUniverse(ctx) {
   const ranked = await qualityRanked(ctx);
   const picked = await hygieneWalk(ranked, UNIVERSE_SIZE, ctx);
-  appLog.info({ span: 'verdict.daily', msg: `universe walk: ${picked.length} core names selected` });
+  deps.appLog.info({ span: 'verdict.daily', msg: `universe walk: ${picked.length} core names selected` });
   return picked;
 }
 
@@ -221,6 +235,8 @@ async function pickFreshCandidates(coreSymbols, ctx) {
 }
 
 
+export { hygieneWalk };
+
 function readUniverse() {
   try {
     return JSON.parse(fs.readFileSync(path.join(DAILY_DIR, 'universe.json'), 'utf8'));
@@ -233,7 +249,10 @@ async function ensureUniverse(ctx, force = false) {
   const existing = readUniverse();
   const tag = currentWeekTag();
   const ageDays = existing ? (Date.now() - existing.builtAt) / 86400000 : Infinity;
-  if (!force && existing && existing.weekTag === tag && ageDays < UNIVERSE_REFRESH_DAYS) return existing;
+  // Migration: universes built before the selection-hygiene audit carry no
+  // `sector` on their symbols — rebuild once so the sector cap can engage.
+  const hasSectors = existing?.symbols?.length && existing.symbols.every((s) => s.sector !== undefined);
+  if (!force && existing && existing.weekTag === tag && ageDays < UNIVERSE_REFRESH_DAYS && hasSectors) return existing;
   const symbols = await buildUniverse(ctx);
   const universe = { weekTag: tag, builtAt: Date.now(), symbols };
   fs.mkdirSync(DAILY_DIR, { recursive: true });
@@ -264,14 +283,22 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
         results.push({
           symbol: v.symbol,
           name: v.name,
+          sector: u.sector ?? null,
           action: v.verdict.action,
           confidence: v.verdict.confidence,
           score: v.breakdown?.score,
           horizon: v.verdict.horizon,
           price: v.price,
+          dollarVolume: u.metrics?.dollarVolume ?? null,
           // Computed trade plan (never LLM prose): entry band, stop, R:R, sizing.
-          buyZone: v.tradePlan?.entry != null ? `$${v.tradePlan.entry.toFixed(2)} – $${v.tradePlan.entryHigh.toFixed(2)}` : null,
-          tradePlan: v.tradePlan || null,
+          // Geometry audit: a non-tradable plan shows 'no valid plan — wait'
+          // instead of buy zone and sizing.
+          buyZone: v.tradePlan?.tradable === false
+            ? 'no valid plan — wait'
+            : v.tradePlan?.entry != null ? `$${v.tradePlan.entry.toFixed(2)} – $${v.tradePlan.entryHigh.toFixed(2)}` : null,
+          tradePlan: v.tradePlan
+            ? (v.tradePlan.tradable === false ? { ...v.tradePlan, sharesFor1k: 0, maxLossUsd: null } : v.tradePlan)
+            : null,
           target1: v.levels?.target1,
           target2: v.levels?.target2,
           stopLoss: v.levels?.stopLoss,
@@ -306,13 +333,19 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
           freshResults.push({
             symbol: v.symbol,
             name: v.name,
+            sector: u.sector ?? null,
             action: v.verdict.action,
             confidence: v.verdict.confidence,
             score: v.breakdown?.score,
             horizon: v.verdict.horizon,
             price: v.price,
-            buyZone: v.tradePlan?.entry != null ? `$${v.tradePlan.entry.toFixed(2)} – $${v.tradePlan.entryHigh.toFixed(2)}` : null,
-            tradePlan: v.tradePlan || null,
+            dollarVolume: u.metrics?.dollarVolume ?? null,
+            buyZone: v.tradePlan?.tradable === false
+              ? 'no valid plan — wait'
+              : v.tradePlan?.entry != null ? `$${v.tradePlan.entry.toFixed(2)} – $${v.tradePlan.entryHigh.toFixed(2)}` : null,
+            tradePlan: v.tradePlan
+              ? (v.tradePlan.tradable === false ? { ...v.tradePlan, sharesFor1k: 0, maxLossUsd: null } : v.tradePlan)
+              : null,
             target1: v.levels?.target1,
             target2: v.levels?.target2,
             stopLoss: v.levels?.stopLoss,
@@ -345,8 +378,23 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
     const pool = [
       ...succeeded.map((r) => ({ ...r, tier: 'core' })),
       ...freshOk.map((r) => ({ ...r, tier: 'fresh' })),
-    ].sort((a, b) => (b.score ?? b.confidence) - (a.score ?? a.confidence));
-    const ordered = pool.slice(0, UNIVERSE_SIZE);
+      // Selection-hygiene audit: equal scores tie-break by dollar volume desc.
+    ].sort((a, b) =>
+      ((b.score ?? b.confidence) - (a.score ?? a.confidence)) ||
+      ((b.dollarVolume || 0) - (a.dollarVolume || 0))
+    );
+    // Selection-hygiene audit: at most ONE name per sector in the displayed
+    // list (diversification over score-chasing concentration). null/'Unknown'
+    // sectors are each their own bucket — they don't consume a sector slot.
+    const seenSectorKeys = new Set();
+    const ordered = [];
+    for (const r of pool) {
+      if (ordered.length >= UNIVERSE_SIZE) break;
+      const key = r.sector && r.sector !== 'Unknown' ? `sector:${r.sector}` : `sym:${r.symbol}`;
+      if (seenSectorKeys.has(key)) continue;
+      seenSectorKeys.add(key);
+      ordered.push(r);
+    }
 
     const runUsage = [...results, ...freshResults].reduce(
       (a, r) => ({

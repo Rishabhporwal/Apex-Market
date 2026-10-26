@@ -78,33 +78,64 @@ export function traceCtx(req) {
  *   })
  *
  * Returns {status, ok, json, text, durationMs}. Non-2xx does NOT throw.
+ *
+ * Retry policy (audit fix): GET is retried up to 2 extra times on HTTP 429/5xx
+ * and network errors, with 500ms/1500ms backoff. POST is retried at most once
+ * (a POST with a body is never re-sent more than once). The response contract
+ * is unchanged; retries are invisible to callers except in the logs.
  */
 export const httpClient = {
   async fetch(url, opts = {}) {
     const { method = 'GET', body = null, headers = {}, ctx = null, span = 'http', timeoutMs = 15000, log = sharedLog } = opts;
     const traceHeaders = ctx ? ctx.headers : {};
+    const verb = String(method).toUpperCase();
+    const maxRetries = verb === 'GET' ? 2 : 1;
     const started = Date.now();
-    try {
-      const res = await fetch(url, {
-        method,
-        headers: { ...traceHeaders, ...(body !== null ? { 'content-type': 'application/json' } : {}), ...headers },
-        body: body !== null ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      const durationMs = Date.now() - started;
-      const text = await res.text();
-      let json = null;
-      try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
-      log.info({
-        requestId: ctx?.requestId, traceId: ctx?.traceId, span,
-        msg: `http ${method} ${url} -> ${res.status}`, url, method, status: res.status, durationMs,
-      });
-      return { status: res.status, ok: res.ok, json, text, durationMs };
-    } catch (err) {
-      const durationMs = Date.now() - started;
-      log.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, span, msg: `http ${method} ${url} failed (${durationMs}ms): ${err.message}`, url, method, durationMs, error: err.message });
-      throw err;
+    let lastError = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        const backoffMs = attempt === 1 ? 500 : 1500;
+        log.warn({
+          requestId: ctx?.requestId, traceId: ctx?.traceId, span,
+          msg: `http ${verb} ${url} retry ${attempt}/${maxRetries} in ${backoffMs}ms${lastError ? ` (${lastError.message})` : ''}`,
+          url, method: verb, attempt, backoffMs,
+        });
+        await new Promise((r) => setTimeout(r, backoffMs));
+      }
+      try {
+        const res = await fetch(url, {
+          method: verb,
+          headers: { ...traceHeaders, ...(body !== null ? { 'content-type': 'application/json' } : {}), ...headers },
+          body: body !== null ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        const text = await res.text();
+        let json = null;
+        try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable || attempt === maxRetries) {
+          const durationMs = Date.now() - started;
+          log.info({
+            requestId: ctx?.requestId, traceId: ctx?.traceId, span,
+            msg: `http ${verb} ${url} -> ${res.status}`, url, method: verb, status: res.status,
+            durationMs, attempts: attempt + 1,
+          });
+          return { status: res.status, ok: res.ok, json, text, durationMs };
+        }
+        lastError = new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        lastError = err;
+        if (attempt === maxRetries) {
+          const durationMs = Date.now() - started;
+          log.warn({
+            requestId: ctx?.requestId, traceId: ctx?.traceId, span,
+            msg: `http ${verb} ${url} failed (${durationMs}ms): ${err.message}`, url, method: verb, durationMs, error: err.message,
+          });
+          throw err;
+        }
+      }
     }
+    /* unreachable */ 
   },
 };
 
@@ -251,7 +282,7 @@ export async function startService({ name, port, healthDeps }) {
 
   app.setErrorHandler((err, req, reply) => {
     const ctx = req.traceCtx || {};
-    log.warn({ requestId: ctx.requestId, traceId: ctx.traceId, msg: `${req.method} ${req.url} error: ${err.message}`, error: err.message });
+    log.warn({ requestId: ctx.requestId, traceId: ctx.traceId, msg: `${req.method} ${req.url} error: ${err.message}`, error: err.message, stack: err.stack });
     reply.status(err.statusCode && err.statusCode >= 400 ? err.statusCode : 500).send({ error: err.message });
   });
 

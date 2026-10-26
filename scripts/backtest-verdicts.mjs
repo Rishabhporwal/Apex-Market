@@ -7,12 +7,21 @@
  * Method (honest by construction):
  *  - Walks monthly checkpoints over the last N years for each ticker.
  *  - At each checkpoint, feeds ONLY data available up to that date into the
- *    quant core (candles slice + fundamentals from the latest 10-K filed
- *    BEFORE the checkpoint — no look-ahead).
+ *    quant core (candles slice + fundamentals from the latest 10-K FILED
+ *    before the checkpoint — no look-ahead; gated on the filing date, not the
+ *    fiscal period end).
  *  - News/LLM are excluded from scoring (no historical news feed) — this makes
  *    results a lower-bound, not a fantasy.
  *  - Forward return = price change over the next `horizonDays` (default 90).
+ *  - Transaction costs: 10 bps per side (20 bps round trip) deducted from
+ *    every traded signal (BUY = long, SELL = short) — see COST_BPS_PER_SIDE.
  *  - Benchmark: SPY buy-and-hold over the same windows.
+ *  - Emits data/calibration.json: score-band -> observed target1 hit-rate
+ *    (price reached target1 within the horizon before hitting the stop),
+ *    consumed by the quant engine's confidence lookup.
+ *  - Also re-scores every checkpoint the LEGACY way (pre-fix behavior:
+ *    period-end gating + the fy='FY' query bug that silently selected zero
+ *    fundamental rows) so the report can print an honest before/after.
  *
  * Usage:  node scripts/backtest-verdicts.mjs [--years=3] [--horizon=90] [--top=150] [--tickers=AAPL,MSFT]
  * Output: data/backtest-report.json + console summary
@@ -24,6 +33,14 @@ import { DuckDBInstance } from '@duckdb/node-api';
 const ROOT = path.resolve(process.cwd());
 const WAREHOUSE = path.join(ROOT, 'data', 'warehouse.duckdb');
 const OUT = path.join(ROOT, 'data', 'backtest-report.json');
+const CALIBRATION_OUT = path.join(ROOT, 'data', 'calibration.json');
+
+// ---- transaction costs (P0-1 audit fix) ----
+// 10 bps per side: entry + exit = 20 bps round trip. Applied to every traded
+// signal (BUY = long entry/exit, SELL = short entry/cover) as a percentage-
+// point deduction from the forward return.
+const COST_BPS_PER_SIDE = 10;
+const COST_RT_PCT = (COST_BPS_PER_SIDE * 2) / 100; // 0.20 percentage points
 
 // ---- args ----
 const args = process.argv.slice(2);
@@ -59,6 +76,86 @@ function classifyTrend(price, s50, s200) {
   }
   return 'sideways';
 }
+
+// ---- levels port (kept in lockstep with services/verdict/levels.mjs) ----
+// Only what the calibration path-simulation needs: ATR-14, fractal pivots and
+// the stop/target1 geometry, so backtest calibration measures the SAME target
+// structure the live trade plan uses.
+function atr14(candles) {
+  if (candles.length < 15) return undefined;
+  let sum = 0;
+  for (let i = candles.length - 14; i < candles.length; i++) {
+    const tr = Math.max(
+      candles[i].high - candles[i].low,
+      Math.abs(candles[i].high - candles[i - 1].close),
+      Math.abs(candles[i].low - candles[i - 1].close)
+    );
+    sum += tr;
+  }
+  return sum / 14;
+}
+
+function structureLevels(candles, direction) {
+  // Mirrors levels.mjs getStopLossAndTargets (window-5 fractal pivots).
+  if (!candles || !candles.length) return null;
+  const a = atr14(candles);
+  if (!a) return null;
+  const price = candles[candles.length - 1].close;
+  const w = 5;
+  const highs = [];
+  const lows = [];
+  for (let i = w; i < candles.length - w; i++) {
+    let isHigh = true;
+    let isLow = true;
+    for (let j = i - w; j <= i + w; j++) {
+      if (j === i) continue;
+      if (candles[j].high >= candles[i].high) isHigh = false;
+      if (candles[j].low <= candles[i].low) isLow = false;
+    }
+    if (isHigh) highs.push(candles[i].high);
+    if (isLow) lows.push(candles[i].low);
+  }
+  const resistances = [...highs, ...candles.map((c) => c.high)].filter((v) => v > price).sort((x, y) => x - y);
+  const supports = [...lows, ...candles.map((c) => c.low)].filter((v) => v < price).sort((x, y) => y - x);
+  if (direction === 'BUY') {
+    const stop = Math.min(supports[0] ?? price - 2 * a, price - 2 * a);
+    const t1 = resistances.length ? Math.min(resistances[0] + a, price + 3 * a) : price + 2 * a;
+    return { stop, target1: t1 };
+  }
+  // SELL (short): stop above, target below — mirrored, same as levels.mjs.
+  const stop = Math.max(resistances[0] ?? price + 2 * a, price + 2 * a);
+  const t1 = supports.length ? Math.max(supports[0] - a, price - 3 * a) : price - 2 * a;
+  return { stop, target1: t1 };
+}
+
+/**
+ * Walk the forward window and classify the outcome: did price reach target1
+ * ('hit') before touching the stop ('stop'), or neither ('none')? Same-bar
+ * stop+target ambiguity resolves to 'stop' (conservative).
+ */
+function pathOutcome(candles, entryIdx, exitIdx, stop, target1, long) {
+  for (let i = entryIdx + 1; i <= exitIdx; i++) {
+    const c = candles[i];
+    if (long) {
+      if (c.low <= stop) return 'stop';
+      if (c.high >= target1) return 'hit';
+    } else {
+      if (c.high >= stop) return 'stop';
+      if (c.low <= target1) return 'hit';
+    }
+  }
+  return 'none';
+}
+
+// ---- score-band buckets (MUST stay in sync with quantEngine confidence lookup) ----
+export function calibrationBand(score) {
+  if (score >= 35) return '>=35';
+  if (score >= 15) return '15..35';
+  if (score > -15) return '-15..15';
+  if (score >= -35) return '-35..-15';
+  return '<-35';
+}
+const BAND_ORDER = ['<-35', '-35..-15', '-15..15', '15..35', '>=35'];
 
 function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0 }) {
   const closes = candles.map((c) => c.close);
@@ -102,11 +199,28 @@ function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0 }) {
 }
 
 // ---- fundamentals as-of a date (EDGAR facts, no look-ahead) ----
+/**
+ * P0-1 audit fix: facts are gated on the FILING date (`filed_at`), not the
+ * fiscal period end. A 10-K for FY2024 can be filed up to ~3 months after the
+ * fiscal year ends, so period-end gating leaks information the market could
+ * not have had.
+ *
+ * Fallback approximation for legacy rows (ingested before filed_at existed,
+ * filed_at IS NULL): exclude facts whose fiscal period ended less than 45 days
+ * before asOf — 10-K/10-Q legal filing windows make it impossible for those
+ * numbers to have been public yet. This is strictly more conservative than
+ * period-end gating and only applies to legacy rows.
+ */
 function buildFundamentalsAsOf(facts, asOfMs) {
-  // facts: [{tag, end(ms), val, form}] pre-filtered to annual 10-K us-gaap rows
+  const visible = (f) => {
+    if (f.filedAt != null) return f.filedAt <= asOfMs;
+    // Conservative approximation for legacy rows without a filing date.
+    return f.end + 45 * 24 * 3600 * 1000 <= asOfMs;
+  };
+  // facts: [{tag, end(ms), filedAt(ms|null), val}] pre-filtered to annual 10-K us-gaap rows
   const pick = (tags) => {
     for (const tag of tags) {
-      const rows = facts.filter((f) => f.tag === tag && f.end <= asOfMs);
+      const rows = facts.filter((f) => f.tag === tag && visible(f));
       if (rows.length) {
         rows.sort((a, b) => b.end - a.end);
         return rows[0].val;
@@ -114,11 +228,11 @@ function buildFundamentalsAsOf(facts, asOfMs) {
     }
     return undefined;
   };
-  const revenue = pick(['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'SalesRevenueNet']);
+  const revenueTags = ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'SalesRevenueNet'];
+  const revenue = pick(revenueTags);
   const revenuePrev = (() => {
-    const tags = ['RevenueFromContractWithCustomerExcludingAssessedTax', 'Revenues', 'RevenueFromContractWithCustomerIncludingAssessedTax', 'SalesRevenueNet'];
-    for (const tag of tags) {
-      const rows = facts.filter((f) => f.tag === tag && f.end <= asOfMs).sort((a, b) => b.end - a.end);
+    for (const tag of revenueTags) {
+      const rows = facts.filter((f) => f.tag === tag && visible(f)).sort((a, b) => b.end - a.end);
       if (rows.length >= 2) return rows[1].val;
     }
     return undefined;
@@ -131,7 +245,12 @@ function buildFundamentalsAsOf(facts, asOfMs) {
   if (revenue && revenuePrev && revenuePrev !== 0) out.revenueGrowthYoY = ((revenue - revenuePrev) / Math.abs(revenuePrev)) * 100;
   if (revenue && netIncome) out.netMargin = (netIncome / revenue) * 100;
   if (netIncome && equity && equity > 0) out.roe = (netIncome / equity) * 100;
-  if (netIncome && eps && eps > 0) out.peRatio = null; // PE needs price; handled by caller if desired
+  if (eps) out.epsDiluted = eps; // caller turns this into peRatio at the checkpoint price
+  // NOTE: peRatio is intentionally NOT set here. The caller computes it from
+  // the checkpoint price and as-of EPS (price was observable at the checkpoint,
+  // so this is look-ahead-free). The old `out.peRatio = null` placeholder was
+  // an active bug: scoreVerdict treats null as a present-but-invalid P/E and
+  // docks -6 fundamental points for it.
   return out;
 }
 
@@ -184,6 +303,18 @@ async function main() {
 
   const buckets = { BUY: [], SELL: [], HOLD: [] };
   const spyBuckets = { BUY: [], SELL: [], HOLD: [] };
+  // Net-of-costs (20 bps round trip) for traded signals only. SELL signals are
+  // interpreted as shorts: gross return = -fwd, then costs deducted.
+  const netBuckets = { BUY: [], SELL: [] };
+  const spyNetBuckets = { BUY: [], SELL: [] };
+  // Legacy (pre-fix) replication for the before/after print: the old script
+  // gated facts on period end AND had a `fy = 'FY'` query bug that selected
+  // zero fundamental rows, so the scorer effectively never saw fundamentals.
+  const legacyBuckets = { BUY: [], SELL: [], HOLD: [] };
+  const legacySpyBuckets = { BUY: [], SELL: [], HOLD: [] };
+  // Score-band calibration accumulators (target1-before-stop hit rates).
+  const calib = {};
+  for (const b of BAND_ORDER) calib[b] = { n: 0, hits: 0, stopped: 0, neither: 0 };
   let totalSignals = 0;
   let skippedNoData = 0;
   const perTicker = [];
@@ -201,13 +332,22 @@ async function main() {
         .map((q) => ({ time: new Date(q.date).toISOString().split('T')[0], open: q.open, high: q.high, low: q.low, close: q.close, volume: q.volume || 0, t: new Date(q.date).getTime() }));
       if (candlesAll.length < 260) { skippedNoData++; continue; }
 
-      // EDGAR facts for this CIK (annual us-gaap rows only)
+      // EDGAR facts for this CIK (annual us-gaap rows only).
+      // P0-1 fix: the old query filtered `f.fy = 'FY'`, but `fy` stores the
+      // fiscal YEAR (e.g. '2025') while `fp` stores 'FY' — it selected ZERO
+      // rows, so the backtest ran with no fundamentals at all. Filter on fp,
+      // and pull filed_at for look-ahead-free gating.
       const factsRs = await conn.runAndReadAll(
-        `SELECT f.tag, f.end, f.val FROM facts f JOIN companies c ON c.cik = f.cik
-         WHERE c.ticker = ? AND f.form = '10-K' AND f.fy = 'FY'`,
+        `SELECT f.tag, f.end, f.val, f.filed_at FROM facts f JOIN companies c ON c.cik = f.cik
+         WHERE c.ticker = ? AND f.form = '10-K' AND f.fp = 'FY'`,
         [ticker]
       );
-      const facts = factsRs.getRowObjects().map((r) => ({ tag: String(r.tag), end: new Date(String(r.end)).getTime(), val: Number(r.val) }));
+      const facts = factsRs.getRowObjects().map((r) => ({
+        tag: String(r.tag),
+        end: new Date(String(r.end)).getTime(),
+        filedAt: r.filed_at == null ? null : new Date(String(r.filed_at)).getTime(),
+        val: Number(r.val),
+      }));
 
       let signalsThisTicker = 0;
       // Checkpoints: walk backwards from the newest date that still has a full forward window
@@ -224,8 +364,32 @@ async function main() {
 
         const slice = candlesAll.slice(0, idx + 1);
         const fundamentals = buildFundamentalsAsOf(facts, c0.t);
-        const { action } = scoreVerdict({ price: c0.close, candles: slice, fundamentals });
+        // P/E from the checkpoint price and as-of EPS — both were observable at
+        // the checkpoint (see buildFundamentalsAsOf note).
+        if (fundamentals.epsDiluted && fundamentals.epsDiluted > 0) {
+          fundamentals.peRatio = c0.close / fundamentals.epsDiluted;
+        }
+        const { action, score } = scoreVerdict({ price: c0.close, candles: slice, fundamentals });
         const fwd = ((c1.close - c0.close) / c0.close) * 100;
+        // Net of 10 bps/side (20 bps round trip). SELL = short: gross -fwd.
+        const netFwd = action === 'SELL' ? -fwd - COST_RT_PCT : fwd - COST_RT_PCT;
+
+        // Legacy replication (pre-fix behavior: fundamentals never reached the
+        // scorer) for the before/after comparison in the report.
+        const { action: legacyAction } = scoreVerdict({ price: c0.close, candles: slice });
+
+        // Calibration: same stop/target1 structure as the live trade plan, in
+        // the direction the score implies (>=0 long, <0 short).
+        const dir = score >= 0 ? 'BUY' : 'SELL';
+        const struct = structureLevels(slice, dir);
+        if (struct && Number.isFinite(struct.stop) && Number.isFinite(struct.target1)) {
+          const outcome = pathOutcome(candlesAll, idx, exitIdx, struct.stop, struct.target1, dir === 'BUY');
+          const b = calib[calibrationBand(score)];
+          b.n++;
+          if (outcome === 'hit') b.hits++;
+          else if (outcome === 'stop') b.stopped++;
+          else b.neither++;
+        }
 
         // SPY forward return over the same window
         const spy0 = spy.find((s) => s.t >= c0.t);
@@ -235,6 +399,12 @@ async function main() {
 
         buckets[action].push(fwd);
         spyBuckets[action].push(spyFwd);
+        if (action === 'BUY' || action === 'SELL') {
+          netBuckets[action].push(netFwd);
+          spyNetBuckets[action].push(spyFwd);
+        }
+        legacyBuckets[legacyAction].push(fwd);
+        legacySpyBuckets[legacyAction].push(spyFwd);
         totalSignals++;
         signalsThisTicker++;
       }
@@ -253,25 +423,98 @@ async function main() {
   const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
   const median = (a) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
   const winRate = (a) => (a.length ? (a.filter((x) => x > 0).length / a.length) * 100 : 0);
+  const r2 = (v) => Number(v.toFixed(2));
+
+  // Per-action summary including net-of-costs metrics (traded signals only).
+  const actionSummary = (name) => {
+    const raw = {
+      n: buckets[name].length,
+      avgForwardReturn: r2(avg(buckets[name])),
+      median: r2(median(buckets[name])),
+      winRate: +winRate(buckets[name]).toFixed(1),
+      spyAvgSameWindows: r2(avg(spyBuckets[name])),
+    };
+    raw.avgAlpha = r2(raw.avgForwardReturn - raw.spyAvgSameWindows);
+    if (name === 'BUY' || name === 'SELL') {
+      raw.netOfCosts = {
+        costBpsRoundTrip: COST_BPS_PER_SIDE * 2,
+        avgReturn: r2(avg(netBuckets[name])),
+        winRate: +winRate(netBuckets[name]).toFixed(1),
+        avgAlpha: r2(avg(netBuckets[name]) - avg(spyNetBuckets[name])),
+        note: name === 'SELL' ? 'short interpretation: gross = -forward return' : 'long',
+      };
+    }
+    return raw;
+  };
+  const legacySummary = (name) => ({
+    n: legacyBuckets[name].length,
+    avgForwardReturn: r2(avg(legacyBuckets[name])),
+    winRate: +winRate(legacyBuckets[name]).toFixed(1),
+    spyAvgSameWindows: r2(avg(legacySpyBuckets[name])),
+    avgAlpha: r2(avg(legacyBuckets[name]) - avg(legacySpyBuckets[name])),
+  });
+
+  const calibration = {};
+  for (const band of BAND_ORDER) {
+    const b = calib[band];
+    calibration[band] = {
+      n: b.n,
+      hits: b.hits,
+      stoppedFirst: b.stopped,
+      neitherInHorizon: b.neither,
+      hitRate: b.n ? +(100 * b.hits / b.n).toFixed(1) : null,
+      // Observed confidence the engine should quote for this band.
+      confidence: b.n ? Math.round(100 * b.hits / b.n) : null,
+    };
+  }
 
   const report = {
     generatedAt: new Date().toISOString(),
-    config: { years: YEARS, horizonDays: HORIZON, universe: tickers.length, note: 'Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound.' },
-    totals: { signals: totalSignals, tickersTested: tickers.length - skippedNoData, tickersSkipped: skippedNoData },
-    actions: {
-      BUY: { n: buckets.BUY.length, avgForwardReturn: +avg(buckets.BUY).toFixed(2), median: +median(buckets.BUY).toFixed(2), winRate: +winRate(buckets.BUY).toFixed(1), spyAvgSameWindows: +avg(spyBuckets.BUY).toFixed(2) },
-      HOLD: { n: buckets.HOLD.length, avgForwardReturn: +avg(buckets.HOLD).toFixed(2), median: +median(buckets.HOLD).toFixed(2), winRate: +winRate(buckets.HOLD).toFixed(1), spyAvgSameWindows: +avg(spyBuckets.HOLD).toFixed(2) },
-      SELL: { n: buckets.SELL.length, avgForwardReturn: +avg(buckets.SELL).toFixed(2), median: +median(buckets.SELL).toFixed(2), winRate: +winRate(buckets.SELL).toFixed(1), spyAvgSameWindows: +avg(spyBuckets.SELL).toFixed(2) },
+    config: {
+      years: YEARS, horizonDays: HORIZON, universe: tickers.length,
+      transactionCostBpsPerSide: COST_BPS_PER_SIDE,
+      fundamentalsGate: 'filed_at <= asOf (filing date); legacy NULL-filed_at rows use a conservative 45-day post-period-end approximation',
+      note: 'Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound.',
     },
+    totals: { signals: totalSignals, tickersTested: tickers.length - skippedNoData, tickersSkipped: skippedNoData },
+    actions: { BUY: actionSummary('BUY'), HOLD: actionSummary('HOLD'), SELL: actionSummary('SELL') },
+    // Before/after: exact legacy behavior re-scored over the same checkpoints.
+    legacy: {
+      note: 'Pre-fix method: period-end gating + fy=\'FY\' query bug → fundamentals never reached the scorer; no transaction costs.',
+      actions: { BUY: legacySummary('BUY'), HOLD: legacySummary('HOLD'), SELL: legacySummary('SELL') },
+    },
+    calibration,
     perTickerSample: perTicker.slice(0, 20),
   };
 
   fs.writeFileSync(OUT, JSON.stringify(report, null, 2));
-  console.log('\n===== BACKTEST SUMMARY =====');
+
+  // ---- calibration.json (consumed by quantEngine confidence lookup) --------
+  const calibrationDoc = {
+    generatedAt: report.generatedAt,
+    source: 'scripts/backtest-verdicts.mjs',
+    config: { years: YEARS, horizonDays: HORIZON, signals: totalSignals, transactionCostBpsPerSide: COST_BPS_PER_SIDE },
+    note: 'confidence = observed share of signals in the score band whose target1 was reached within the horizon before the stop (levels structure: window-5 fractal pivots + ATR-14, same as the live trade plan). Bands are half-open: [lo, hi) except >=35.',
+    bands: calibration,
+  };
+  fs.writeFileSync(CALIBRATION_OUT, JSON.stringify(calibrationDoc, null, 2));
+
+  console.log('\n===== BACKTEST SUMMARY (corrected: filed-date gating, 20bps RT costs) =====');
   for (const [a, s] of Object.entries(report.actions)) {
-    console.log(`${a.padEnd(5)} n=${String(s.n).padStart(4)} | avg ${s.avgForwardReturn > 0 ? '+' : ''}${s.avgForwardReturn}% in ${HORIZON}d | win ${s.winRate}% | SPY same windows ${s.spyAvgSameWindows}%`);
+    console.log(`${a.padEnd(5)} n=${String(s.n).padStart(4)} | avg ${s.avgForwardReturn > 0 ? '+' : ''}${s.avgForwardReturn}% in ${HORIZON}d | win ${s.winRate}% | alpha ${s.avgAlpha > 0 ? '+' : ''}${s.avgAlpha}% vs SPY${s.netOfCosts ? ` | NET ${s.netOfCosts.avgReturn > 0 ? '+' : ''}${s.netOfCosts.avgReturn}% win ${s.netOfCosts.winRate}% alpha ${s.netOfCosts.avgAlpha > 0 ? '+' : ''}${s.netOfCosts.avgAlpha}%` : ''}`);
   }
-  console.log(`\nReport saved: ${OUT}`);
+  console.log('\n===== BEFORE/AFTER vs legacy method (same checkpoints) =====');
+  for (const a of ['BUY', 'HOLD', 'SELL']) {
+    const o = report.actions[a];
+    const l = report.legacy.actions[a];
+    console.log(`${a.padEnd(5)} n=${String(l.n).padStart(4)} | avg alpha ${l.avgAlpha > 0 ? '+' : ''}${l.avgAlpha}% -> ${o.avgAlpha > 0 ? '+' : ''}${o.avgAlpha}% (raw) / ${o.netOfCosts ? `${o.netOfCosts.avgAlpha > 0 ? '+' : ''}${o.netOfCosts.avgAlpha}% (net)` : 'n/a'} | win ${l.winRate}% -> ${o.winRate}%`);
+  }
+  console.log('\n===== CALIBRATION (score band -> target1 hit-rate) =====');
+  for (const band of BAND_ORDER) {
+    const c = calibration[band];
+    console.log(`${band.padEnd(9)} n=${String(c.n).padStart(4)} hit ${c.hitRate == null ? '—' : c.hitRate + '%'} (stopped-first ${c.stoppedFirst}, neither ${c.neitherInHorizon})`);
+  }
+  console.log(`\nReport saved: ${OUT}\nCalibration saved: ${CALIBRATION_OUT}`);
   await conn.closeSync();
 }
 

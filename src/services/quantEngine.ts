@@ -6,6 +6,11 @@
  * Pure functions only: no fetches, no globals, no Date.now().
  */
 import type { Candle } from '@/types';
+// Server-only calibration read (mirrors quantEngine.mjs). No client bundle
+// imports this module — the AI verdict is produced server-side.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export type Trend = 'up' | 'down' | 'sideways';
 export type VerdictAction = 'BUY' | 'SELL' | 'HOLD' | 'NEUTRAL';
@@ -47,6 +52,8 @@ export interface QuantScoreResult {
   score: number; // -100..100
   action: VerdictAction;
   confidence: number; // 0..100
+  /** true when confidence came from the backtest calibration table (data/calibration.json). */
+  calibrated: boolean;
   trend: Trend;
   rsi14?: number;
   fundamentalsUsed: boolean;
@@ -129,6 +136,81 @@ export function pivotLevels(candles: Candle[], window = 5, dedupePct = 0.005): {
   };
   return { supports: dedupe(supports), resistances: dedupe(resistances) };
 }
+
+// ---- Confidence calibration (P0-1 audit fix) -------------------------------
+// EXACT mirror of services/verdict/quantEngine.mjs `Confidence calibration`
+// section — keep both in lockstep (band boundaries, lookup, fallback formula).
+// The backtester (scripts/backtest-verdicts.mjs) emits data/calibration.json:
+// score band -> OBSERVED share of signals that reached target1 within the
+// horizon before hitting the stop. Confidence is that observed hit-rate.
+
+export interface CalibrationBandStats {
+  n: number;
+  hits: number;
+  stoppedFirst: number;
+  neitherInHorizon: number;
+  hitRate: number | null;
+  confidence: number | null;
+}
+export type CalibrationBands = Record<string, CalibrationBandStats>;
+
+/** Must stay in lockstep with calibrationBand() in quantEngine.mjs and the backtester. */
+export const CALIBRATION_BANDS = ['<-35', '-35..-15', '-15..15', '15..35', '>=35'];
+
+export function calibrationBand(score: number): string {
+  if (score >= 35) return '>=35';
+  if (score >= 15) return '15..35';
+  if (score > -15) return '-15..15';
+  if (score >= -35) return '-35..-15';
+  return '<-35';
+}
+
+// undefined = not attempted yet; null = attempted and unavailable.
+let calibrationCache: CalibrationBands | null | undefined;
+
+/** data/calibration.json location: DATA_DIR override, else <repo>/data. */
+export function calibrationFilePath(): string {
+  const dataDir = process.env.DATA_DIR;
+  return dataDir
+    ? path.join(dataDir, 'calibration.json')
+    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data/calibration.json');
+}
+
+export function loadCalibration(): CalibrationBands | null {
+  if (calibrationCache !== undefined) return calibrationCache;
+  calibrationCache = null;
+  try {
+    const raw = JSON.parse(fs.readFileSync(calibrationFilePath(), 'utf8')) as { bands?: CalibrationBands };
+    const bands = raw?.bands;
+    if (bands && CALIBRATION_BANDS.every((b) => bands[b] && typeof bands[b].hitRate === 'number')) {
+      calibrationCache = bands;
+    }
+  } catch {
+    /* missing or corrupt calibration -> legacy formula fallback */
+  }
+  return calibrationCache;
+}
+
+/** Test/debug hook: inject bands directly (null clears back to legacy). */
+export function setCalibration(bands: CalibrationBands | null): void {
+  calibrationCache = bands;
+}
+
+/** confidence + calibrated flag for a score. Mirrors quantEngine.mjs exactly. */
+export function confidenceForScore(score: number): { confidence: number; calibrated: boolean } {
+  const bands = loadCalibration();
+  if (bands) {
+    const band = bands[calibrationBand(score)];
+    if (band && typeof band.hitRate === 'number') {
+      return { confidence: Math.round(band.hitRate), calibrated: true };
+    }
+  }
+  // Legacy fallback (pre-calibration formula).
+  return { confidence: Math.round(Math.min(95, 45 + Math.abs(score) / 2)), calibrated: false };
+}
+
+// Boot: warm the calibration table once at module load (mirrors quantEngine.mjs).
+loadCalibration();
 
 // ---- Trend classification ----
 
@@ -233,7 +315,9 @@ export function scoreVerdict(input: {
     bearishVotes = { count: bearishVoteCount, reasons };
   }
 
-  const confidence = Math.round(Math.min(95, 45 + Math.abs(score) / 2));
+  // Confidence: calibrated hit-rate for the score band when
+  // data/calibration.json is loaded, else the legacy formula (mirrors .mjs).
+  const { confidence, calibrated } = confidenceForScore(score);
 
   const breakdown: QuantBreakdown = {
     score,
@@ -256,5 +340,5 @@ export function scoreVerdict(input: {
     ...(bearishVotes ? { bearishVotes } : {}),
   };
 
-  return { score, action, confidence, trend, rsi14: rsiVal, fundamentalsUsed, breakdown };
+  return { score, action, confidence, calibrated, trend, rsi14: rsiVal, fundamentalsUsed, breakdown };
 }

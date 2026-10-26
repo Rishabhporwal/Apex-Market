@@ -162,6 +162,9 @@ function collectAnnual(facts, taxonomy, tags) {
         tag,
         val: v.val,
         end: new Date(v.end),
+        // `filed` = the date this value actually became public (the filing's
+        // acceptance/filing date). Critical for look-ahead-free backtests.
+        filed: v.filed ? new Date(v.filed) : null,
         fy: String(v.fy ?? ''),
         fp: v.fp,
         form: v.form,
@@ -278,6 +281,10 @@ async function initDb() {
       frame VARCHAR
     );
   `);
+  // Migration for warehouses created before filed_at existed: add the column
+  // in place. Rows ingested before this change keep filed_at = NULL and are
+  // handled conservatively by consumers (see backtest buildFundamentalsAsOf).
+  await conn.run(`ALTER TABLE facts ADD COLUMN IF NOT EXISTS filed_at DATE;`);
   await conn.run(`
     CREATE TABLE IF NOT EXISTS metrics_latest (
       cik BIGINT PRIMARY KEY,
@@ -328,8 +335,9 @@ async function main() {
     );
   const insertFactRow = (cik, f) =>
     conn.run(
-      'INSERT INTO facts VALUES (?, ?, CAST(? AS DATE), ?, ?, ?, ?, ?)',
-      [BigInt(cik), f.tag, f.end.toISOString().slice(0, 10), f.val, f.fy, f.fp, f.form, f.frame]
+      'INSERT INTO facts VALUES (?, ?, CAST(? AS DATE), ?, ?, ?, ?, ?, CAST(? AS DATE))',
+      [BigInt(cik), f.tag, f.end.toISOString().slice(0, 10), f.val, f.fy, f.fp, f.form, f.frame,
+       f.filed ? f.filed.toISOString().slice(0, 10) : null]
     );
 
   let ok = 0, failed = 0, noFacts = 0;
