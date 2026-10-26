@@ -192,6 +192,36 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   const trendStrong = trend !== 'sideways';
   const horizon = trendStrong && rsiExtreme ? 'swing' : trendStrong ? 'swing' : 'long';
 
+  // ---- Trade window: how long this analysis is meant to be acted on --------
+  // Explicit holding period per trade (user ask): swing = ~1 week (5 trading
+  // days), long = ~1 month (21). The window always ends at the next earnings
+  // report when one falls inside it — an analysis is not meant to survive
+  // through an earnings print.
+  const holdingDays = horizon === 'swing' ? 5 : 21;
+  const WEEKDAYS = (n) => {
+    // n trading days from now (skips Sat/Sun), as ISO date
+    const d = new Date(Date.now());
+    let added = 0;
+    while (added < n) {
+      d.setDate(d.getDate() + 1);
+      if (d.getDay() !== 0 && d.getDay() !== 6) added++;
+    }
+    return d;
+  };
+  let validUntil = WEEKDAYS(holdingDays).toISOString().slice(0, 10);
+  let windowNote = `~${holdingDays} trading days`;
+  const erDays = earnings?.daysUntil;
+  if (erDays != null && erDays >= 0 && erDays < holdingDays) {
+    validUntil = earnings.earningsDate ? earnings.earningsDate.slice(0, 10) : validUntil;
+    windowNote = `cut short by the earnings report (${erDays <= 0 ? 'imminent' : `in ${erDays} days`}) — re-analyze after the print`;
+  }
+  const tradeWindow = {
+    horizon,
+    holdingDays,
+    validUntil,
+    note: windowNote,
+  };
+
   // ---- LLM narrative (only when a provider key exists) --------------------
   // Uses the multi-model ensemble: N cheap models run the same prompt in
   // parallel and vote; consensus is honest uncertainty signaling.
@@ -207,7 +237,14 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   let llmUsage = null;
   let researchFromCache = false;
   if (depth === 'full' && process.env.OPENROUTER_API_KEY) {
-    const cached = opts.refresh ? null : readResearchCache(clean, earnings?.earningsDate || null);
+    // Single-flight + 24h research cache. Two concurrent verdicts for the same
+    // symbol must not both run the (expensive) ensemble: the FIRST caller
+    // registers a promise; later callers await it and share its outcome.
+    // refresh=1 skips the cache read but still joins an in-flight run.
+    const inflightKey = `${clean}|${earnings?.earningsDate || ''}`;
+    const inflightMap = (generateVerdict.inflight ??= new Map());
+    const inflight = inflightMap.get(inflightKey);
+    const cached = !inflight && !opts.refresh ? readResearchCache(clean, earnings?.earningsDate || null) : null;
     if (cached) {
       narrative = cached.narrative;
       ensemble = cached.ensemble || null;
@@ -216,32 +253,54 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       // cached verdict reports that historical spend, not $0.
       llmUsage = cached.usage || null;
       researchFromCache = true;
+    } else if (inflight) {
+      const shared = await inflight.catch(() => null);
+      if (shared) {
+        narrative = shared.narrative;
+        ensemble = shared.ensemble;
+        llmTone = shared.tone;
+        llmUsage = shared.usage;
+        researchFromCache = true;
+      }
     } else {
-      try {
-        const llm = await callPeer('llm', '/ensemble', {
-          ctx,
-          method: 'POST',
-          body: {
-            symbol: clean,
-            companyName: name,
-            currentPrice: price,
-            technicalSummary: { rsi14, trendShortTerm: trend === 'up' ? 'BULLISH' : trend === 'down' ? 'BEARISH' : 'NEUTRAL' },
-            sentimentScore: news.sentimentScore,
-            newsHeadlines: news.newsItems.map((n) => n.title),
-            keyFinancials: { trailingPE: fundamentals?.peRatio },
-          },
-          timeoutMs: 90_000,
-        });
-        narrative = llm?.narrative || llm?.deepAnalysis;
-        ensemble = llm?.votes ? { consensus: llm.consensus, agreeing: llm.agreeing, of: llm.of, votes: llm.votes } : null;
-        llmUsage = llm?.usage || null;
-        // Majority tone feeds the soft vote
-        llmTone = llm?.consensus === 'BUY' ? 'BULLISH' : llm?.consensus === 'SELL' ? 'BEARISH' : llm?.consensus === 'HOLD' ? 'NEUTRAL' : undefined;
-        if (narrative) {
-          writeResearchCache(clean, earnings?.earningsDate || null, { narrative, ensemble, tone: llmTone, usage: llmUsage });
+      const run = (async () => {
+        try {
+          const llm = await callPeer('llm', '/ensemble', {
+            ctx,
+            method: 'POST',
+            body: {
+              symbol: clean,
+              companyName: name,
+              currentPrice: price,
+              technicalSummary: { rsi14, trendShortTerm: trend === 'up' ? 'BULLISH' : trend === 'down' ? 'BEARISH' : 'NEUTRAL' },
+              sentimentScore: news.sentimentScore,
+              newsHeadlines: news.newsItems.map((n) => n.title),
+              keyFinancials: { trailingPE: fundamentals?.peRatio },
+            },
+            timeoutMs: 90_000,
+          });
+          const freshNarrative = llm?.narrative || llm?.deepAnalysis;
+          const freshEnsemble = llm?.votes ? { consensus: llm.consensus, agreeing: llm.agreeing, of: llm.of, votes: llm.votes } : null;
+          const freshTone = llm?.consensus === 'BUY' ? 'BULLISH' : llm?.consensus === 'SELL' ? 'BEARISH' : llm?.consensus === 'HOLD' ? 'NEUTRAL' : undefined;
+          const freshUsage = llm?.usage || null;
+          if (freshNarrative) {
+            writeResearchCache(clean, earnings?.earningsDate || null, { narrative: freshNarrative, ensemble: freshEnsemble, tone: freshTone, usage: freshUsage });
+          }
+          return { narrative: freshNarrative, ensemble: freshEnsemble, tone: freshTone, usage: freshUsage };
+        } catch (err) {
+          appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM ensemble failed for ${clean}: ${err.message}` });
+          return null;
+        } finally {
+          inflightMap.delete(inflightKey);
         }
-      } catch (err) {
-        appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM ensemble failed for ${clean}: ${err.message}` });
+      })();
+      inflightMap.set(inflightKey, run);
+      const shared = await run;
+      if (shared) {
+        narrative = shared.narrative;
+        ensemble = shared.ensemble;
+        llmTone = shared.tone;
+        llmUsage = shared.usage;
       }
     }
   }
@@ -283,6 +342,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
     price: Math.round(price * 100) / 100,
     asOf: Date.now(),
     verdict: { action, confidence, horizon, summary },
+    tradeWindow,
     breakdown: quant.breakdown,
     earnings,
     meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION, llmUsage },

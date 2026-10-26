@@ -228,6 +228,10 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/alerts')) {
     serviceName = 'userdata';
     downstreamPath = url.replace(/^\/api/, '');
+  } else if (url.startsWith('/api/pins')) {
+    // Pinned analyses ("I'm holding this") — userdata pin store.
+    serviceName = 'userdata';
+    downstreamPath = url.replace(/^\/api/, '');
   } else if (url.startsWith('/api/portfolio-state')) {
     // Paper-portfolio persistence blob → svc-userdata /portfolio (GET/PUT).
     serviceName = 'userdata';

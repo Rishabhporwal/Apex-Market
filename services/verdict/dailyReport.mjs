@@ -235,6 +235,7 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
           target2: v.levels?.target2,
           stopLoss: v.levels?.stopLoss,
           reason: v.verdict.summary,
+          tradeWindow: v.tradeWindow || null,
           earnings: v.earnings || null,
           cachedAnalysis: !!v.meta?.researchCached,
           // Token & cost accounting for this symbol's research (zero when the

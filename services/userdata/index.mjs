@@ -33,6 +33,15 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
+// ---- Migrations for DBs created before a column existed ---------------------
+// CREATE TABLE IF NOT EXISTS doesn't alter existing tables — add missing
+// columns explicitly (SQLite ALTER TABLE ADD COLUMN is idempotent-safe here
+// because we probe pragma first).
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+ensureColumn('alerts', 'kind', `TEXT NOT NULL DEFAULT 'verdict_change'`);
 db.exec(`
   CREATE TABLE IF NOT EXISTS watchlist (
     client_id TEXT NOT NULL,
@@ -51,6 +60,7 @@ db.exec(`
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id   TEXT NOT NULL,
     symbol      TEXT NOT NULL,
+    kind        TEXT NOT NULL DEFAULT 'verdict_change',
     from_action TEXT,
     to_action   TEXT,
     confidence  INTEGER,
@@ -74,6 +84,18 @@ db.exec(`
     client_id  TEXT PRIMARY KEY,
     state      TEXT NOT NULL,
     updated_at INTEGER NOT NULL
+  );
+  -- Pinned analyses ("I bought this and I'm still holding"): a snapshot of the
+  -- analysis at pin time that SURVIVES the stock leaving the daily Top-5 list
+  -- or the verdict changing. The alert checker watches these specifically for
+  -- thesis breaks (verdict flips against the pinned direction, price crosses
+  -- the pinned stop, or the analysis window expires).
+  CREATE TABLE IF NOT EXISTS pins (
+    client_id   TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    pinned_at   INTEGER NOT NULL,
+    analysis    TEXT NOT NULL,
+    PRIMARY KEY (client_id, symbol)
   );
 `);
 
@@ -106,8 +128,12 @@ const upsertSnapshot = db.prepare(`
 `);
 const watchersOf = db.prepare('SELECT DISTINCT client_id FROM watchlist WHERE symbol = ?');
 const insertAlert = db.prepare(`
-  INSERT INTO alerts (client_id, symbol, from_action, to_action, confidence, price, created_at, seen)
-  VALUES (@client_id, @symbol, @from_action, @to_action, @confidence, @price, @created_at, 0)
+  INSERT INTO alerts (client_id, symbol, kind, from_action, to_action, confidence, price, created_at, seen)
+  VALUES (@client_id, @symbol, 'verdict_change', @from_action, @to_action, @confidence, @price, @created_at, 0)
+`);
+const insertAlertKind = db.prepare(`
+  INSERT INTO alerts (client_id, symbol, kind, from_action, to_action, confidence, price, created_at, seen)
+  VALUES (@client_id, @symbol, @kind, @from_action, @to_action, @confidence, @price, @created_at, 0)
 `);
 const listAlerts = db.prepare('SELECT * FROM alerts WHERE client_id = ? AND (? = 0 OR seen = 0) ORDER BY created_at DESC, id DESC LIMIT 200');
 const countUnseen = db.prepare('SELECT COUNT(*) AS n FROM alerts WHERE client_id = ? AND seen = 0');
@@ -138,7 +164,7 @@ function watchlistResponse(clientId) {
 
 function alertRow(a) {
   return {
-    id: a.id, symbol: a.symbol, fromAction: a.from_action, toAction: a.to_action,
+    id: a.id, symbol: a.symbol, kind: a.kind || 'verdict_change', fromAction: a.from_action, toAction: a.to_action,
     confidence: a.confidence, price: a.price, createdAt: a.created_at, seen: !!a.seen,
   };
 }
@@ -158,7 +184,10 @@ async function runCheckCycle(reason = 'scheduled') {
   checking = true;
   const cycleLog = { checked: 0, changed: 0, alerts: 0, failed: 0 };
   try {
-    const symbols = distinctSymbols.all().map((r) => r.symbol);
+    const symbols = [
+      ...distinctSymbols.all().map((r) => r.symbol),
+      ...db.prepare('SELECT DISTINCT symbol FROM pins').all().map((r) => r.symbol),
+    ].filter((s, i, arr) => arr.indexOf(s) === i);
     for (const symbol of symbols) {
       try {
         const base = resolveServiceUrl('verdict');
@@ -197,6 +226,49 @@ async function runCheckCycle(reason = 'scheduled') {
             }
             if (created.length) deliverWebhook(created);
             cycleLog.changed += 1;
+          }
+          // ---- Pinned-position protection (thesis breaks) -------------------
+          // For every client pinning this symbol, compare the LIVE verdict and
+          // price against the pinned analysis. Three break conditions:
+          //   1. verdict flipped AGAINST the pinned direction (pinned BUY, now
+          //      SELL — or pinned BUY now HOLD with negative momentum)
+          //   2. live price crossed the pinned stop-loss
+          //   3. the pinned analysis window expired (validUntil passed)
+          // Alerts are rate-limited by only firing when state CHANGES vs the
+          // previous check (prev snapshot), same as verdict-change alerts.
+          const pinners = allPinsForSymbol.all(symbol);
+          for (const p of pinners) {
+            let a;
+            try { a = JSON.parse(p.analysis); } catch { continue; }
+            const reasons = [];
+            const pinnedDir = a.action; // 'BUY' | 'SELL' | 'HOLD'
+            if (pinnedDir === 'BUY' && (action === 'SELL' || (action === 'HOLD' && prev && prev.action === 'BUY'))) {
+              reasons.push(`verdict turned ${action} (was ${prev ? prev.action : 'BUY'} when you pinned)`);
+            } else if (pinnedDir === 'SELL' && action === 'BUY') {
+              reasons.push(`verdict turned BUY against your short-thesis pin`);
+            }
+            if (a.stopLoss != null && typeof snap.price === 'number' && snap.price < a.stopLoss) {
+              reasons.push(`price $${snap.price.toFixed(2)} broke your stop $${a.stopLoss.toFixed(2)}`);
+            }
+            if (a.validUntil && now > Date.parse(a.validUntil + 'T23:59:59Z') + 0 && now - (Date.parse(a.validUntil + 'T23:59:59Z')) > 86_400_000) {
+              reasons.push(`analysis window expired (${a.validUntil}) — re-analyze`);
+            }
+            if (reasons.length === 0) continue;
+            // Rate-limit: one position-at-risk alert per (pin, day) via the
+            // alerts table seen-flag; skip if we already alerted today.
+            const dayKey = new Date(now).toISOString().slice(0, 10);
+            const dup = db.prepare(`
+              SELECT 1 FROM alerts WHERE client_id = ? AND symbol = ? AND kind = 'pin_at_risk'
+                AND created_at > ? LIMIT 1
+            `).get(p.client_id, symbol, Date.parse(dayKey + 'T00:00:00Z'));
+            if (dup) continue;
+            insertAlertKind.run({
+              client_id: p.client_id, symbol, kind: 'pin_at_risk',
+              from_action: pinnedDir, to_action: reasons.join(' · '),
+              confidence: snap.confidence, price: snap.price, created_at: now,
+            });
+            cycleLog.alerts += 1;
+            cycleLog.pinAlerts = (cycleLog.pinAlerts || 0) + 1;
           }
         });
         tx();
@@ -324,6 +396,53 @@ app.put('/portfolio', async (req, reply) => {
   }
   upsertPortfolio.run(clientId, json, Date.now());
   return { saved: true, updatedAt: Date.now() };
+});
+
+// ---- Pinned analyses ("I'm holding this") -----------------------------------
+// A pin snapshots the analysis at pin time. The alert checker (runCheckCycle)
+// compares the LIVE verdict/price against every client's pin for that symbol
+// and raises position-at-risk alerts on thesis breaks. Pins persist until the
+// client unpins — independent of watchlists, the Top-5 list, or verdict churn.
+const getPin = db.prepare('SELECT analysis, pinned_at FROM pins WHERE client_id = ? AND symbol = ?');
+const listPins = db.prepare('SELECT symbol, analysis, pinned_at FROM pins WHERE client_id = ? ORDER BY pinned_at DESC');
+const insertPin = db.prepare(`
+  INSERT INTO pins (client_id, symbol, pinned_at, analysis) VALUES (?, ?, ?, ?)
+  ON CONFLICT(client_id, symbol) DO UPDATE SET analysis = excluded.analysis, pinned_at = excluded.pinned_at
+`);
+const deletePin = db.prepare('DELETE FROM pins WHERE client_id = ? AND symbol = ?');
+const allPinsForSymbol = db.prepare('SELECT client_id, analysis, pinned_at FROM pins WHERE symbol = ?');
+const MAX_PIN_BYTES = 8 * 1024;
+
+function pinRow(p) {
+  let analysis = null;
+  try { analysis = JSON.parse(p.analysis); } catch { /* corrupt pin — ignore */ }
+  return { symbol: p.symbol, pinnedAt: p.pinned_at, analysis };
+}
+
+app.get('/pins', async (req) => {
+  const clientId = clientIdFor(req);
+  return { pins: listPins.all(clientId).map(pinRow) };
+});
+
+app.post('/pins', async (req, reply) => {
+  const clientId = clientIdFor(req);
+  const symbol = cleanSymbol(req.body?.symbol);
+  const analysis = req.body?.analysis;
+  if (!analysis || typeof analysis !== 'object') {
+    return reply.status(400).send({ error: 'body.analysis (object) is required' });
+  }
+  const json = JSON.stringify({ ...analysis, pinnedAt: Date.now() });
+  if (Buffer.byteLength(json) > MAX_PIN_BYTES) {
+    return reply.status(413).send({ error: 'analysis snapshot too large' });
+  }
+  insertPin.run(clientId, symbol, Date.now(), json);
+  return { pins: listPins.all(clientId).map(pinRow) };
+});
+
+app.delete('/pins/:symbol', async (req) => {
+  const clientId = clientIdFor(req);
+  deletePin.run(clientId, cleanSymbol(req.params.symbol));
+  return { pins: listPins.all(clientId).map(pinRow) };
 });
 
 await listen();

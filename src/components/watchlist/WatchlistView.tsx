@@ -12,6 +12,7 @@ interface WatchedSymbol {
 interface AlertItem {
   id: number;
   symbol: string;
+  kind?: string;
   fromAction: string;
   toAction: string;
   confidence: number;
@@ -290,17 +291,27 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
             ) : (
               <div className="glass-panel rounded-2xl divide-y divide-slate-800/70">
                 {alerts.map((a) => (
-                  <div key={a.id} className={`p-4 flex items-center gap-4 flex-wrap ${!a.seen ? 'bg-cyan-500/5' : ''}`}>
-                    {!a.seen && <span className="h-2 w-2 rounded-full bg-cyan-400 shrink-0" title="New" />}
+                  <div key={a.id} className={`p-4 flex items-center gap-4 flex-wrap ${!a.seen ? (a.kind === 'pin_at_risk' ? 'bg-rose-500/5' : 'bg-cyan-500/5') : ''}`}>
+                    {!a.seen && <span className={`h-2 w-2 rounded-full shrink-0 ${a.kind === 'pin_at_risk' ? 'bg-rose-400' : 'bg-cyan-400'}`} title="New" />}
                     <button onClick={() => onSelectSymbol(a.symbol)} className="font-bold text-white hover:text-cyan-300">
                       {a.symbol}
                     </button>
-                    <div className="flex items-center gap-2">
-                      <ActionBadge action={a.fromAction} />
-                      <span className="text-slate-600">→</span>
-                      <ActionBadge action={a.toAction} />
-                    </div>
-                    <span className="text-xs text-slate-500">@ ${a.price?.toFixed(2)} · {a.confidence}% conf</span>
+                    {a.kind === 'pin_at_risk' ? (
+                      <>
+                        <span className="text-xs font-semibold text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-full px-2 py-0.5">
+                          position at risk — still holding
+                        </span>
+                        <span className="text-xs text-rose-200/80">{a.toAction}</span>
+                        <span className="text-[10px] text-slate-600">pinned as {a.fromAction}</span>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <ActionBadge action={a.fromAction} />
+                        <span className="text-slate-600">&rarr;</span>
+                        <ActionBadge action={a.toAction} />
+                      </div>
+                    )}
+                    {a.price != null && <span className="text-xs text-slate-500">@ ${a.price?.toFixed(2)}{a.confidence ? ` · ${a.confidence}% conf` : ''}</span>}
                     <span className="ml-auto text-xs text-slate-600">{timeAgo(a.createdAt)}</span>
                   </div>
                 ))}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle, CheckCircle2, Coins } from 'lucide-react';
+import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle, CheckCircle2, Coins, Pin, X } from 'lucide-react';
 
 interface DailyRow {
   symbol: string;
@@ -20,6 +20,15 @@ interface DailyRow {
   cachedAnalysis?: boolean;
   llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
+}
+
+interface PinnedAnalysis {
+  symbol: string;
+  pinnedAt: number;
+  analysis: {
+    action?: string; confidence?: number; score?: number; price?: number;
+    stopLoss?: number; target1?: number; horizon?: string; validUntil?: string;
+  } | null;
 }
 
 interface DailyReport {
@@ -49,14 +58,16 @@ const fmt = (v?: number | null) => (v == null ? '—' : `$${v.toFixed(2)}`);
  *  (it's a research-cache hit — instant and free). */
 export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: string) => void }) {
   const [report, setReport] = useState<DailyReport | null>(null);
+  const [pins, setPins] = useState<PinnedAnalysis[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/daily-report');
+      const [res, pinRes] = await Promise.all([fetch('/api/daily-report'), fetch('/api/pins')]);
       if (res.ok) setReport(await res.json());
+      if (pinRes.ok) setPins((await pinRes.json()).pins || []);
     } catch { /* offline */ } finally {
       setLoading(false);
     }
@@ -131,6 +142,59 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
           </div>
         )}
       </div>
+
+      {/* Pinned holdings — analyses you pinned while holding; they persist even
+          when the symbol drops off the daily list or the verdict changes. The
+          alert checker raises thesis-break alerts on these. */}
+      {pins.length > 0 && (
+        <div className="glass-panel rounded-2xl p-6">
+          <h3 className="font-bold text-white flex items-center gap-2 mb-1">
+            <Pin className="h-4 w-4 text-indigo-400" /> Held positions
+            <span className="text-[10px] font-normal text-slate-500">— pinned analyses, protected by thesis-break alerts</span>
+          </h3>
+          <div className="mt-3 space-y-2">
+            {pins.map((p) => {
+              const a = p.analysis || {};
+              const expired = a.validUntil ? new Date(a.validUntil + 'T23:59:59') < new Date() : false;
+              const inList = (report?.results || []).some((r) => r.symbol === p.symbol);
+              return (
+                <div key={p.symbol} className="flex items-center gap-3 bg-slate-900/40 border border-indigo-500/20 rounded-xl p-3">
+                  <Pin className="h-4 w-4 text-indigo-400 shrink-0 fill-indigo-400/40" />
+                  <button onClick={() => onSelectSymbol(p.symbol)} className="text-left min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-white text-sm">{p.symbol}</span>
+                      {a.action && <span className={'px-2 py-0.5 rounded-full border text-[10px] font-bold ' + (ACTION_STYLES[a.action] || ACTION_STYLES.NEUTRAL)}>{a.action}</span>}
+                      <span className="text-[11px] text-slate-500">pinned {new Date(p.pinnedAt).toLocaleDateString()} @ ${a.price?.toFixed(2) ?? '—'}</span>
+                      {a.validUntil && (
+                        <span className={'text-[10px] px-1.5 py-0.5 rounded-full ' + (expired ? 'bg-amber-500/15 text-amber-400' : 'bg-slate-700/40 text-slate-400')}>
+                          {expired ? 'window expired — re-analyze' : 'valid until ' + new Date(a.validUntil + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                      {!inList && <span className="text-[10px] text-slate-600">not in today's list — still tracked</span>}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">
+                      {a.stopLoss != null && <span>stop ${a.stopLoss.toFixed(2)} · </span>}
+                      {a.target1 != null && <span>target ${a.target1.toFixed(2)} · </span>}
+                      <span>thesis-break alerts active</span>
+                    </div>
+                  </button>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await fetch('/api/pins?symbol=' + encodeURIComponent(p.symbol), { method: 'DELETE' });
+                      setPins((prev) => prev.filter((x) => x.symbol !== p.symbol));
+                    }}
+                    className="text-slate-600 hover:text-rose-400 transition shrink-0"
+                    title={'Unpin ' + p.symbol + ' (you no longer hold it)'}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Ranked rows */}
       {!report?.available ? (

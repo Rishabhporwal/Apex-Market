@@ -16,6 +16,8 @@ import {
   ChevronUp,
   ChevronDown,
   Star,
+  Pin,
+  CalendarClock,
 } from 'lucide-react';
 import { MetricHelp } from '@/components/ui/MetricHelp';
 
@@ -56,6 +58,7 @@ interface AiVerdict {
     source: string;
   };
   technicals: { trend: string; rsi14?: number; sentimentScore?: number };
+  tradeWindow?: { horizon: string; holdingDays: number; validUntil: string; note: string } | null;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   breakdown?: {
     trend: { points: number; detail: string };
@@ -221,6 +224,8 @@ export function VerdictView({ symbol }: { symbol: string }) {
   const [error, setError] = useState<string | null>(null);
   const [watched, setWatched] = useState(false);
   const [watchBusy, setWatchBusy] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
   const [earnings, setEarnings] = useState<{ earningsDate: string | null; daysUntil: number | null } | null>(null);
 
   const load = async () => {
@@ -252,6 +257,42 @@ export function VerdictView({ symbol }: { symbol: string }) {
     return () => { cancelled = true; };
   }, [symbol]);
 
+  // Pin this analysis ("I bought this and I'm holding") — snapshots the
+  // verdict so it survives list churn and verdict changes; the alert checker
+  // then protects the position (thesis-break alerts).
+  const togglePin = async () => {
+    if (!v || pinBusy) return;
+    setPinBusy(true);
+    try {
+      if (pinned) {
+        await fetch(`/api/pins?symbol=${encodeURIComponent(v.symbol)}`, { method: 'DELETE' });
+        setPinned(false);
+      } else {
+        const res = await fetch('/api/pins', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            symbol: v.symbol,
+            analysis: {
+              action: v.verdict.action,
+              confidence: v.verdict.confidence,
+              score: v.breakdown?.score ?? null,
+              price: v.price,
+              buyZone: null,
+              stopLoss: v.levels?.stopLoss ?? null,
+              target1: v.levels?.target1 ?? null,
+              horizon: v.verdict.horizon,
+              validUntil: v.tradeWindow?.validUntil ?? null,
+            },
+          }),
+        });
+        if (res.ok) setPinned(true);
+      }
+    } catch { /* pin state is optimistic UI; alert checker tolerates gaps */ } finally {
+      setPinBusy(false);
+    }
+  };
+
   // Is this symbol already on the watchlist?
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +304,21 @@ export function VerdictView({ symbol }: { symbol: string }) {
           setWatched((data.symbols || []).some((s: { symbol: string }) => s.symbol === symbol.toUpperCase()));
         }
       } catch { /* watchlist unavailable — star stays off */ }
+    })();
+    return () => { cancelled = true; };
+  }, [symbol]);
+
+  // Is this symbol's analysis pinned (holding)?
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/pins');
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setPinned((data.pins || []).some((p: { symbol: string }) => p.symbol === symbol.toUpperCase()));
+        }
+      } catch { /* pins unavailable — pin stays off */ }
     })();
     return () => { cancelled = true; };
   }, [symbol]);
@@ -333,6 +389,14 @@ export function VerdictView({ symbol }: { symbol: string }) {
           <div className="flex-1">
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <button
+                onClick={togglePin}
+                disabled={pinBusy}
+                title={pinned ? `Unpin the ${v.symbol} analysis` : `Pin this analysis — you're holding ${v.symbol} and want thesis-break alerts`}
+                className={`shrink-0 transition ${pinned ? 'text-indigo-400' : 'text-slate-600 hover:text-indigo-300'} disabled:opacity-50`}
+              >
+                <Pin className={`h-5 w-5 ${pinned ? 'fill-indigo-400' : ''}`} />
+              </button>
+              <button
                 onClick={toggleWatch}
                 disabled={watchBusy}
                 title={watched ? `Remove ${v.symbol} from watchlist` : `Track ${v.symbol} — get alerted when the verdict changes`}
@@ -344,6 +408,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
               <span>·</span>
               <span>{v.name}</span>
               {watched && <span className="text-[10px] text-amber-400/80">tracked · alerts on</span>}
+              {pinned && <span className="text-[10px] text-indigo-400/90">📌 holding · thesis-break alerts on</span>}
             </div>
             <div className="flex items-baseline gap-3 mt-1">
               <span className="text-4xl font-bold text-white">${v.price.toFixed(2)}</span>
@@ -367,6 +432,13 @@ export function VerdictView({ symbol }: { symbol: string }) {
               </div>
             </div>
             <div className="mt-2 text-[11px] text-slate-400 capitalize">Horizon: {v.verdict.horizon}-term</div>
+            {v.tradeWindow && (
+              <div className="mt-1.5 text-[11px] text-slate-400" title={`This analysis is meant to be acted on within ${v.tradeWindow.holdingDays} trading days. After that, re-analyze before acting on it.`}>
+                <CalendarClock className="h-3 w-3 inline mr-1 text-slate-500" />
+                Valid until <span className="text-slate-300 font-semibold">{new Date(v.tradeWindow.validUntil + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span className="text-slate-600"> · {v.tradeWindow.note}</span>
+              </div>
+            )}
             {v.ensemble && v.ensemble.consensus && (
               <div
                 className="mt-3 pt-3 border-t border-slate-700/60"
