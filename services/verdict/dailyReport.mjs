@@ -66,14 +66,12 @@ function currentWeekTag(now = new Date()) {
   return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-async function buildUniverse(ctx) {
+async function qualityRanked(ctx) {
   const { resolveService, httpClient, appLog } = deps;
   const base = await resolveService('edgar', ctx);
   // Quality screen mirrors the platform's 'quality' preset (growth 10%+,
-  // margin 10%+, ROE 12%+). Ranking uses fundamentals only; the price cap is
-  // applied by fetching LIVE quotes while walking the ranked list — the
-  // latest-prices.json snapshot is often stale/sparse, so we never trust it
-  // for the capital-fit filter.
+  // margin 10%+, ROE 12%+). Ranking uses fundamentals only; price filters are
+  // applied later via LIVE quotes (the latest-prices.json snapshot is stale).
   const res = await httpClient.fetch(
     `${base}/screener?minRevenueGrowth=10&minNetMargin=10&minRoe=12&limit=150`,
     { ctx, span: 'verdict.daily.universe', timeoutMs: 60_000, log: appLog }
@@ -125,9 +123,7 @@ async function buildUniverse(ctx) {
     return true;
   });
   appLog.info({ span: 'verdict.daily', msg: `universe dedup: ${rows0.length} rows -> ${deduped.length} unique issuers` });
-  const rows = deduped;
-
-  const ranked = deduped
+  return deduped
     .map((r) => ({
       symbol: r.symbol,
       name: r.name,
@@ -141,27 +137,31 @@ async function buildUniverse(ctx) {
       },
     }))
     .sort((a, b) => b.qualityScore - a.qualityScore || (b.metrics.marketCap || 0) - (a.metrics.marketCap || 0));
+}
 
-  // Walk the ranked list, fetching each candidate's LIVE quote (price + name),
-  // until the universe is full. Unpriced/failed quotes are skipped without
-  // aborting the walk; derivative-named instruments are rejected here because
-  // SEC's ticker map happily maps warrants and notes to CIKs.
+/**
+ * Hygiene walk: walk a fundamentals-ranked candidate list, fetching each
+ * candidate's LIVE quote (price + name), until `count` pass the investable
+ * filters (no derivatives by ticker or name, $5 floor, $400 cap). Unpriced
+ * candidates are skipped without aborting the walk.
+ */
+async function hygieneWalk(ranked, count, ctx, exclude = new Set()) {
+  const { resolveService, httpClient, appLog } = deps;
   const mdBase = await resolveService('market-data', ctx).catch(() => null);
   const picked = [];
-  let quoteFor = async () => null;
-  if (mdBase) {
-    quoteFor = async (symbol) => {
-      try {
-        const q = await httpClient.fetch(`${mdBase}/quote/${encodeURIComponent(symbol)}`, { ctx, span: 'verdict.daily.universe.price', timeoutMs: 8_000, log: appLog });
-        const p = q.json?.price;
-        return p && typeof p === 'number' && p > 0 ? q.json : null;
-      } catch {
-        return null;
-      }
-    };
-  }
+  const quoteFor = async (symbol) => {
+    if (!mdBase) return null;
+    try {
+      const q = await httpClient.fetch(`${mdBase}/quote/${encodeURIComponent(symbol)}`, { ctx, span: 'verdict.daily.universe.price', timeoutMs: 8_000, log: appLog });
+      const p = q.json?.price;
+      return p && typeof p === 'number' && p > 0 ? q.json : null;
+    } catch {
+      return null;
+    }
+  };
   for (const cand of ranked) {
-    if (picked.length >= UNIVERSE_SIZE) break;
+    if (picked.length >= count) break;
+    if (exclude.has(cand.symbol)) continue;
     if (DERIVATIVE_TICKER_RE.test(cand.symbol)) continue; // warrants/units/rights/preferreds
     const q = await quoteFor(cand.symbol);
     if (!q) {
@@ -178,9 +178,48 @@ async function buildUniverse(ctx) {
     picked.push(cand);
   }
   if (!picked.length) throw new Error(`no quality companies under $${MAX_SHARE_PRICE} — widen the screen or check the price feed`);
-  appLog.info({ span: 'verdict.daily', msg: `universe walk: ${picked.length} of ${ranked.length} candidates under $${MAX_SHARE_PRICE}` });
   return picked;
 }
+
+async function buildUniverse(ctx) {
+  const ranked = await qualityRanked(ctx);
+  const picked = await hygieneWalk(ranked, UNIVERSE_SIZE, ctx);
+  appLog.info({ span: 'verdict.daily', msg: `universe walk: ${picked.length} core names selected` });
+  return picked;
+}
+
+/**
+ * Daily fresh candidates: quality-ranked names NOT in the core universe and
+ * NOT analyzed in the last FRESH_DEDUP_DAYS, hygiene-walked like the core.
+ * This is the daily discovery stream — stable core for thesis continuity,
+ * fresh names for novelty, bounded cost (FRESH_SIZE full analyses/day).
+ */
+const FRESH_SIZE = 2;
+const FRESH_DEDUP_DAYS = 7;
+
+function recentlyAnalyzedSymbols(days = FRESH_DEDUP_DAYS) {
+  const cutoff = Date.now() - days * 86_400_000;
+  const seen = new Set();
+  try {
+    for (const f of fs.readdirSync(DAILY_DIR).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f))) {
+      const report = JSON.parse(fs.readFileSync(path.join(DAILY_DIR, f), 'utf8'));
+      if ((report.completedAt || 0) < cutoff) continue;
+      for (const r of report.results || []) seen.add(r.symbol);
+      for (const r of report.fresh || []) seen.add(r.symbol);
+    }
+  } catch { /* first run — nothing recent */ }
+  return seen;
+}
+
+async function pickFreshCandidates(coreSymbols, ctx) {
+  const recent = recentlyAnalyzedSymbols();
+  const exclude = new Set([...coreSymbols, ...recent]);
+  const ranked = (await qualityRanked(ctx)).filter((c) => !exclude.has(c.symbol));
+  const picked = await hygieneWalk(ranked, FRESH_SIZE, ctx);
+  deps.appLog.info({ span: 'verdict.daily', msg: `fresh candidates: ${picked.map((s) => s.symbol).join(',') || 'none'} (excluded ${exclude.size} recent/core)` });
+  return picked;
+}
+
 
 function readUniverse() {
   try {
@@ -251,11 +290,52 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
       }
     }
 
+    // ---- Daily fresh candidates (discovery stream) ------------------------
+    // Names outside the weekly core that haven't been analyzed in the last
+    // FRESH_DEDUP_DAYS — each gets ONE fresh full analysis today (this also
+    // warms its research cache, so clicking it later is free all day).
+    const freshResults = [];
+    try {
+      const freshUniverse = await pickFreshCandidates(universe.symbols.map((s) => s.symbol), ctx);
+      for (const u of freshUniverse) {
+        try {
+          const v = await deps.generateVerdict(u.symbol, ctx, { depth: 'full' });
+          const llmUsage = v.meta?.llmUsage || null;
+          freshResults.push({
+            symbol: v.symbol,
+            name: v.name,
+            action: v.verdict.action,
+            confidence: v.verdict.confidence,
+            score: v.breakdown?.score,
+            horizon: v.verdict.horizon,
+            price: v.price,
+            buyZone: v.strategy?.entry || null,
+            target1: v.levels?.target1,
+            target2: v.levels?.target2,
+            stopLoss: v.levels?.stopLoss,
+            reason: v.verdict.summary,
+            tradeWindow: v.tradeWindow || null,
+            earnings: v.earnings || null,
+            cachedAnalysis: !!v.meta?.researchCached,
+            llm: llmUsage
+              ? { promptTokens: llmUsage.totalPromptTokens, completionTokens: llmUsage.totalCompletionTokens, costUsd: llmUsage.totalCostUsd, models: llmUsage.models.map((m) => ({ model: m.model, promptTokens: m.promptTokens, completionTokens: m.completionTokens, costUsd: m.costUsd })) }
+              : { promptTokens: 0, completionTokens: 0, costUsd: 0, models: [] },
+          });
+        } catch (err) {
+          freshResults.push({ symbol: u.symbol, name: u.name, error: err.message });
+          appLog.warn({ span: 'verdict.daily', msg: `fresh candidate ${u.symbol} failed: ${err.message}` });
+        }
+      }
+      freshResults.sort((a, b) => (b.score ?? b.confidence ?? -999) - (a.score ?? a.confidence ?? -999));
+    } catch (err) {
+      appLog.warn({ span: 'verdict.daily', msg: `fresh-candidate selection failed: ${err.message}` });
+    }
+
     const succeeded = results.filter((r) => !r.error);
     succeeded.sort((a, b) => (b.score ?? b.confidence) - (a.score ?? a.confidence));
     const ordered = [...succeeded, ...results.filter((r) => r.error)];
 
-    const runUsage = results.reduce(
+    const runUsage = [...results, ...freshResults].reduce(
       (a, r) => ({
         promptTokens: a.promptTokens + (r.llm?.promptTokens || 0),
         completionTokens: a.completionTokens + (r.llm?.completionTokens || 0),
@@ -276,6 +356,8 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
       // Whole-run token & cost accounting (sum of per-symbol research).
       llmUsage: runUsage,
       results: ordered,
+      // Daily discovery stream: fresh names analyzed today (outside the core).
+      fresh: freshResults,
     };
     fs.mkdirSync(DAILY_DIR, { recursive: true });
     fs.writeFileSync(path.join(DAILY_DIR, `${report.date}.json`), JSON.stringify(report, null, 2));
@@ -298,9 +380,11 @@ function deliverReportWebhook(report) {
       const stop = r.stopLoss != null ? ` · stop $${r.stopLoss.toFixed(2)}` : '';
       return `${i + 1}. ${r.symbol} ${r.action} ${r.confidence}%${zone}${stop} — ${r.reason}`;
     });
+  const freshLines = (report.fresh || []).filter((r) => !r.error)
+    .map((r) => `\u2728 ${r.symbol} ${r.action} ${r.confidence}%\u2003(new today) — ${r.reason}`);
   const failed = report.results.filter((r) => r.error).length;
   const cost = report.llmUsage ? ` (~${Math.round((report.llmUsage.totalPromptTokens + report.llmUsage.totalCompletionTokens) / 1000)}k tokens, $${report.llmUsage.totalCostUsd.toFixed(4)})` : '';
-  const text = `📊 Daily Top-5 research (${report.date})${cost}\n${lines.join('\n')}${failed ? `\n(${failed} symbol(s) failed)` : ''}`;
+  const text = `📊 Daily Top-5 research (${report.date})${cost}\n${lines.join('\n')}${freshLines.length ? '\n\nFresh candidates today:\n' + freshLines.join('\n') : ''}${failed ? `\n(${failed} symbol(s) failed)` : ''}`;
   fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
