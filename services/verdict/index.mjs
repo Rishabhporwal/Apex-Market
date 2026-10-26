@@ -398,7 +398,6 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   const entryLow = supBelow ?? (atr14v ? price - 0.5 * atr14v : null);
   const stop = stopTargets.stopLoss;
   const riskPerShare = stop != null && stop < price ? price - stop : null;
-  const shares1k = riskPerShare ? Math.max(0, Math.floor(10 / riskPerShare)) : 0; // risk 1% of $1,000
 
   // ---- Target geometry (target-geometry audit fix) ---------------------------
   // If the structure target1 yields < 1.5R, extend target1 to at least
@@ -452,8 +451,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
     target2: target2 != null ? Number(target2.toFixed(2)) : null,
     riskPerShare: riskPerShare != null ? Number(riskPerShare.toFixed(2)) : null,
     rewardRisk: rr1 != null ? Number(Math.abs(rr1).toFixed(2)) : null,
-    sharesFor1k: shares1k,
-    maxLossUsd: shares1k > 0 && riskPerShare ? Number((shares1k * riskPerShare).toFixed(2)) : null,
+    riskPct: riskPerShare != null && price > 0 ? Number(((riskPerShare / price) * 100).toFixed(2)) : null,
     lowRR: rr1 != null && Math.abs(rr1) < 1.5,
     // Geometry audit: false = even 1.5R is unreachable within structure — the
     // daily report and UI should treat this as "wait", not a tradeable plan.

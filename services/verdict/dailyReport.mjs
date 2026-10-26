@@ -180,7 +180,7 @@ async function hygieneWalk(ranked, count, ctx, exclude = new Set()) { // exporte
       appLog.info({ span: 'verdict.daily', msg: `universe walk: ${cand.symbol} rejected (derivative name: "${q.name}")` });
       continue;
     }
-    if (q.price < MIN_SHARE_PRICE || q.price >= MAX_SHARE_PRICE) continue;
+    if (q.price < MIN_SHARE_PRICE || q.price >= MAX_SHARE_PRICE) continue; // $5 hygiene floor + $400 capital-fit cap (kept per user preference)
     const dollarVolume = (q.avgVolume || 0) * q.price;
     if (dollarVolume < MIN_DOLLAR_VOLUME_USD) {
       appLog.info({ span: 'verdict.daily', msg: `universe walk: ${cand.symbol} rejected (dollar volume $${Math.round(dollarVolume).toLocaleString()} < $${MIN_DOLLAR_VOLUME_USD.toLocaleString()})` });
@@ -191,7 +191,7 @@ async function hygieneWalk(ranked, count, ctx, exclude = new Set()) { // exporte
     cand.name = q.name || cand.name;
     picked.push(cand);
   }
-  if (!picked.length) throw new Error(`no quality companies under $${MAX_SHARE_PRICE} — widen the screen or check the price feed`);
+  if (!picked.length) throw new Error(`no quality companies under $400 passed the hygiene filters — widen the screen or check the price feed`);
   return picked;
 }
 

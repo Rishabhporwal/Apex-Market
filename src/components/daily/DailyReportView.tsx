@@ -19,7 +19,7 @@ interface DailyRow {
   reason?: string;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   cachedAnalysis?: boolean;
-  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; riskPerShare: number | null; rewardRisk: number | null; sharesFor1k: number; maxLossUsd: number | null; lowRR: boolean } | null;
+  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; lowRR: boolean } | null;
   llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
 }
@@ -118,7 +118,7 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
             </h2>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl">
               The 5 highest-quality companies under $400/share (SEC-filed fundamentals) analyzed once daily, one hour
-              before market open — ranked best-first. Sized for a small account. Same research is reused all day; prices and levels stay live.
+              before market open — ranked best-first. Sizing is generic; apply your own risk budget. Same research is reused all day; prices and levels stay live.
             </p>
             {report?.available && (
               <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
@@ -258,10 +258,8 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                     <div className="mt-2 flex items-center gap-3 flex-wrap text-[11px]">
                       <span className="text-slate-500">R:R</span>
                       <span className={`font-semibold ${r.tradePlan.rewardRisk != null && r.tradePlan.rewardRisk >= 1.5 ? 'text-emerald-400' : 'text-amber-400'}`}>{r.tradePlan.rewardRisk != null ? `${r.tradePlan.rewardRisk.toFixed(2)}:1` : '—'}</span>
-                      <span className="text-slate-500">· 1% risk ($10) →</span>
-                      <span className="text-slate-300 font-semibold">{r.tradePlan.sharesFor1k > 0 ? `${r.tradePlan.sharesFor1k} share${r.tradePlan.sharesFor1k === 1 ? '' : 's'}` : '< 1 share'}</span>
-                      <span className="text-slate-500">· max loss</span>
-                      <span className="text-rose-300 font-semibold">${r.tradePlan.maxLossUsd != null ? r.tradePlan.maxLossUsd.toFixed(2) : '—'}</span>
+                      <span className="text-slate-500">· risk/share</span>
+                      <span className="text-rose-300 font-semibold">${r.tradePlan.riskPerShare?.toFixed(2) ?? '—'}{r.tradePlan.riskPct != null ? ` (${r.tradePlan.riskPct.toFixed(1)}% of entry)` : ''}</span>
                       {r.tradePlan.lowRR && <span className="text-amber-400" title="Reward-to-risk below 1.5 — the plan targets less than 1.5x what you risk">⚠ thin R:R</span>}
                     </div>
                   )}
