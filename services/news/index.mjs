@@ -183,20 +183,18 @@ export function dedupeArticles(items) {
   const ranked = [...items].sort((a, b) =>
     (b._quality - a._quality) || ((b.providerPublishTime || 0) - (a.providerPublishTime || 0)));
   const byKey = new Map(); // first-60 key -> kept item
-  const seenFull = new Set();
   for (const it of ranked) {
     const norm = normalizeHeadline(it.title);
     if (!norm || norm.length < 8) continue;
-    if (seenFull.has(norm)) { it._dupeOf = norm; continue; }
     const key = norm.slice(0, 60);
     const kept = byKey.get(key);
     if (kept) {
+      // Duplicate: exact-equal or near-match (same first 60 normalized chars).
       kept._dupes = (kept._dupes || 0) + 1;
       if (!kept._syndicatedBy) kept._syndicatedBy = [];
       kept._syndicatedBy.push(it.publisher);
       continue;
     }
-    seenFull.add(norm);
     byKey.set(key, it);
   }
   return [...byKey.values()];
