@@ -126,24 +126,23 @@ export function computeLevels(candles) {
 
 /**
  * Trade levels for a BUY (mirrored for SELL) — same math as levelsService.
+ *
+ * Audit fix: this used to return {} for HOLD/NEUTRAL (and when history was too
+ * short for Wilder ATR-14), which nulled tradePlan.stop/targets downstream.
+ * It now ALWAYS returns a sane plan when any candle data exists:
+ *   - BUY (and HOLD/NEUTRAL/unknown): long-style defensive plan — stop below
+ *     price via the ATR-anchored chain (nearest pivot support, floored at
+ *     price - 2*ATR; HOLD keeps a defensive stop under the price), structural
+ *     targets above (nearest resistance + 1*ATR, capped at price + 3*ATR).
+ *   - SELL: mirrored short plan (stop above, targets below).
+ * A mean-range ATR proxy covers histories too short for Wilder ATR-14.
  */
 export function getStopLossAndTargets(candles, action) {
   if (!candles || candles.length === 0) return {};
   const levels = computeLevels(candles);
-  const { price, supports, resistances, atr14 } = levels;
-  if (!atr14) return {};
-
-  const a = atr14;
-  if (action === 'BUY') {
-    const nearestSupport = supports.length ? Math.max(...supports) : undefined;
-    const stop = Math.min(nearestSupport ?? price - 2 * a, price - 2 * a);
-    const t1 = resistances.length
-      ? Math.min(resistances[0] + a, price + 3 * a)
-      : price + 2 * a;
-    const nextRes = resistances.find((r) => r > t1);
-    const t2 = nextRes !== undefined ? nextRes + a : price + 3 * a;
-    return { stopLoss: r2(stop), target1: r2(t1), target2: r2(t2) };
-  }
+  const { price, supports, resistances } = levels;
+  const a = levels.atr14 ?? meanRange(candles);
+  if (!a || !Number.isFinite(a) || a <= 0) return {};
 
   if (action === 'SELL') {
     const nearestRes = resistances.length ? Math.min(...resistances) : undefined;
@@ -156,5 +155,27 @@ export function getStopLossAndTargets(candles, action) {
     return { stopLoss: r2(stop), target1: r2(t1), target2: r2(t2) };
   }
 
-  return {};
+  // BUY, and HOLD/NEUTRAL/anything else: a HOLD verdict still needs a
+  // defensive plan (risk line + structural targets) — long-side geometry.
+  const nearestSupport = supports.length ? Math.max(...supports) : undefined;
+  const stop = Math.min(nearestSupport ?? price - 2 * a, price - 2 * a);
+  const t1 = resistances.length
+    ? Math.min(resistances[0] + a, price + 3 * a)
+    : price + 2 * a;
+  const nextRes = resistances.find((r) => r > t1);
+  const t2 = nextRes !== undefined ? nextRes + a : price + 3 * a;
+  return { stopLoss: r2(stop), target1: r2(t1), target2: r2(t2) };
+}
+
+/**
+ * Mean true range over the last 14 candles (or fewer) — ATR-anchored fallback
+ * for histories too short for Wilder ATR-14. Sufficient for a stop-distance
+ * anchor; never used when the real ATR is available.
+ */
+function meanRange(candles) {
+  if (!candles || candles.length === 0) return undefined;
+  const slice = candles.slice(-14);
+  let sum = 0;
+  for (const c of slice) sum += Math.max(0, c.high - c.low);
+  return sum / slice.length;
 }

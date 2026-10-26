@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.3'; // Grounded ensemble prompt + sector-relative fundamentals
+const VERDICT_ENGINE_VERSION = '2026-10-27.4'; // HOLD/NEUTRAL defensive trade plan (levels.mjs no longer returns {} for non-BUY/SELL)
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
