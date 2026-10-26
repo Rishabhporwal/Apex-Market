@@ -17,7 +17,8 @@ import {
   Sparkles,
   Target,
   Compass,
-  Star
+  Star,
+  Trophy
 } from 'lucide-react';
 import { StockQuote } from '@/types';
 
@@ -83,9 +84,9 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
 
   const navItems = [
     { id: 'discover', label: '🏠 Discover', icon: Compass },
+    { id: 'daily', label: '🏆 Top 15', icon: Trophy },
     { id: 'prediction', label: '🤖 AI Verdict', icon: Target },
     { id: 'chart', label: 'Terminal & Chart', icon: Activity },
-    { id: 'sentiment', label: 'News & AI Predictions', icon: Sparkles },
     { id: 'financials', label: 'Financials & Valuation', icon: BarChart2 },
     { id: 'filings', label: 'SEC Filings & Calls', icon: FileText },
     { id: 'screener', label: 'Stock Screener', icon: Sliders },

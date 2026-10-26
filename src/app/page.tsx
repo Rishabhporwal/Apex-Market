@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Navbar } from '@/components/layout/Navbar';
 import { VerdictView } from '@/components/verdict/VerdictView';
 import { StockChart } from '@/components/charts/StockChart';
-import { SentimentPredictor } from '@/components/sentiment/SentimentPredictor';
+import { DailyReportView } from '@/components/daily/DailyReportView';
 import { FinancialsPanel } from '@/components/research/FinancialsPanel';
 import { FilingsPanel } from '@/components/research/FilingsPanel';
 import { ScreenerView } from '@/components/screener/ScreenerView';
@@ -95,8 +95,13 @@ export default function Home() {
           />
         )}
 
-        {activeTab === 'sentiment' && (
-          <SentimentPredictor symbol={selectedSymbol} />
+        {activeTab === 'daily' && (
+          <DailyReportView
+            onSelectSymbol={(sym) => {
+              setSelectedSymbol(sym);
+              setActiveTab('prediction');
+            }}
+          />
         )}
 
         {activeTab === 'financials' && (

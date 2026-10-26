@@ -10,8 +10,57 @@
 import { startService, loadEnvLocal, traceCtx, httpClient } from '../shared/lib.mjs';
 import { scoreVerdict } from './quantEngine.mjs';
 import { computeLevels, getStopLossAndTargets } from './levels.mjs';
+import { initDailyReport, runDailyReport, getDailyReport, scheduleDailyReport, catchUpDailyReport } from './dailyReport.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 
 loadEnvLocal();
+
+/**
+ * Bump when scoring math, prompt, or narrative semantics change — the research
+ * cache keys on this, so bumping invalidates every cached analysis at once.
+ */
+const VERDICT_ENGINE_VERSION = '2026-10-26.1';
+const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
+const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
+
+/**
+ * Research-layer cache (the expensive part: LLM ensemble narrative + vote).
+ * Quant score/levels/targets are NEVER cached — they recompute live so buy/sell
+ * zones stay market-accurate on every request.
+ *
+ * Files: data/verdict-cache/{SYMBOL}.json — one per symbol, human-readable.
+ * Invalidation: engine-version mismatch, 24h age, ?refresh=1, or an earnings
+ * report occurring after the cache was written (analysis made pre-earnings is
+ * a different animal — never serve it across the print).
+ */
+function researchCachePath(symbol) {
+  return path.join(RESEARCH_CACHE_DIR, `${symbol}.json`);
+}
+
+function readResearchCache(symbol, currentEarningsDate) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(researchCachePath(symbol), 'utf8'));
+    if (raw.engineVersion !== VERDICT_ENGINE_VERSION) return null;
+    if (Date.now() - raw.cachedAt > RESEARCH_CACHE_TTL_MS) return null;
+    if (currentEarningsDate && raw.earningsDate !== currentEarningsDate) return null; // crossed an earnings print
+    return raw.research || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeResearchCache(symbol, currentEarningsDate, research) {
+  try {
+    fs.mkdirSync(RESEARCH_CACHE_DIR, { recursive: true });
+    fs.writeFileSync(
+      researchCachePath(symbol),
+      JSON.stringify({ symbol, engineVersion: VERDICT_ENGINE_VERSION, cachedAt: Date.now(), earningsDate: currentEarningsDate || null, research }, null, 2)
+    );
+  } catch (err) {
+    appLog?.warn?.({ msg: `research cache write failed for ${symbol}: ${err.message}` });
+  }
+}
 
 const DISCLAIMER =
   'This verdict is AI-generated research for informational purposes only. It is not financial advice and should not be relied upon to make investment decisions. Always do your own research and consult a licensed financial adviser before trading.';
@@ -57,15 +106,23 @@ async function callPeer(name, path, { ctx, method = 'GET', body = null, timeoutM
 }
 
 // ---- Orchestrator (port of aiVerdictService.generateVerdict) --------------
-async function generateVerdict(symbol, ctx) {
+// opts.depth: 'full' (default) = news + cached LLM narrative + ensemble.
+//             'quant'          = deterministic score/levels ONLY — no news, no
+//                                LLM, zero tokens. Used by the watchlist alert
+//                                checker and any high-frequency consumer.
+// opts.refresh: bypass the research cache and regenerate the narrative.
+async function generateVerdict(symbol, ctx, opts = {}) {
+  const depth = opts.depth === 'quant' ? 'quant' : 'full';
   const clean = String(symbol).trim().toUpperCase();
   if (!clean) throw Object.assign(new Error('Symbol is required'), { statusCode: 400 });
 
   // ---- Gather inputs; each fetch degrades independently -------------------
+  // quant depth skips news (only feeds the ±25 sentiment term → 0) but keeps
+  // EDGAR fundamentals (cheap local read, feeds the ±35 quality term).
   const [quoteRes, candlesRes, newsRes, edgarRes, earningsRes] = await Promise.allSettled([
     callPeer('market-data', `/quote/${encodeURIComponent(clean)}`, { ctx }),
     callPeer('market-data', `/candles/${encodeURIComponent(clean)}?timeframe=1y&interval=1d`, { ctx }),
-    callPeer('news', `/drivers/${encodeURIComponent(clean)}`, { ctx }),
+    depth === 'quant' ? Promise.resolve(null) : callPeer('news', `/drivers/${encodeURIComponent(clean)}`, { ctx }),
     callPeer('edgar', `/company/${encodeURIComponent(clean)}`, { ctx }),
     // Earnings-calendar awareness: surfaced as a badge + caution in the UI.
     callPeer('research', `/earnings/${encodeURIComponent(clean)}`, { ctx, timeoutMs: 20_000 }),
@@ -138,31 +195,49 @@ async function generateVerdict(symbol, ctx) {
   // ---- LLM narrative (only when a provider key exists) --------------------
   // Uses the multi-model ensemble: N cheap models run the same prompt in
   // parallel and vote; consensus is honest uncertainty signaling.
+  //
+  // COST CONTROL: the narrative + ensemble + majority tone are the expensive
+  // outputs, so they are cached per symbol for 24h (engine-version keyed,
+  // earnings-overrun aware, ?refresh bypass). The quant score and soft vote
+  // recompute live — a cache hit still reflects today's price and trend; only
+  // the prose and the multi-model vote are reused.
   let narrative;
   let llmTone;
   let ensemble = null;
-  if (process.env.OPENROUTER_API_KEY) {
-    try {
-      const llm = await callPeer('llm', '/ensemble', {
-        ctx,
-        method: 'POST',
-        body: {
-          symbol: clean,
-          companyName: name,
-          currentPrice: price,
-          technicalSummary: { rsi14, trendShortTerm: trend === 'up' ? 'BULLISH' : trend === 'down' ? 'BEARISH' : 'NEUTRAL' },
-          sentimentScore: news.sentimentScore,
-          newsHeadlines: news.newsItems.map((n) => n.title),
-          keyFinancials: { trailingPE: fundamentals?.peRatio },
-        },
-        timeoutMs: 90_000,
-      });
-      narrative = llm?.narrative || llm?.deepAnalysis;
-      ensemble = llm?.votes ? { consensus: llm.consensus, agreeing: llm.agreeing, of: llm.of, votes: llm.votes } : null;
-      // Majority tone feeds the soft vote
-      llmTone = llm?.consensus === 'BUY' ? 'BULLISH' : llm?.consensus === 'SELL' ? 'BEARISH' : llm?.consensus === 'HOLD' ? 'NEUTRAL' : undefined;
-    } catch (err) {
-      appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM ensemble failed for ${clean}: ${err.message}` });
+  let researchFromCache = false;
+  if (depth === 'full' && process.env.OPENROUTER_API_KEY) {
+    const cached = opts.refresh ? null : readResearchCache(clean, earnings?.earningsDate || null);
+    if (cached) {
+      narrative = cached.narrative;
+      ensemble = cached.ensemble || null;
+      llmTone = cached.tone;
+      researchFromCache = true;
+    } else {
+      try {
+        const llm = await callPeer('llm', '/ensemble', {
+          ctx,
+          method: 'POST',
+          body: {
+            symbol: clean,
+            companyName: name,
+            currentPrice: price,
+            technicalSummary: { rsi14, trendShortTerm: trend === 'up' ? 'BULLISH' : trend === 'down' ? 'BEARISH' : 'NEUTRAL' },
+            sentimentScore: news.sentimentScore,
+            newsHeadlines: news.newsItems.map((n) => n.title),
+            keyFinancials: { trailingPE: fundamentals?.peRatio },
+          },
+          timeoutMs: 90_000,
+        });
+        narrative = llm?.narrative || llm?.deepAnalysis;
+        ensemble = llm?.votes ? { consensus: llm.consensus, agreeing: llm.agreeing, of: llm.of, votes: llm.votes } : null;
+        // Majority tone feeds the soft vote
+        llmTone = llm?.consensus === 'BUY' ? 'BULLISH' : llm?.consensus === 'SELL' ? 'BEARISH' : llm?.consensus === 'HOLD' ? 'NEUTRAL' : undefined;
+        if (narrative) {
+          writeResearchCache(clean, earnings?.earningsDate || null, { narrative, ensemble, tone: llmTone });
+        }
+      } catch (err) {
+        appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `LLM ensemble failed for ${clean}: ${err.message}` });
+      }
     }
   }
 
@@ -205,6 +280,7 @@ async function generateVerdict(symbol, ctx) {
     verdict: { action, confidence, horizon, summary },
     breakdown: quant.breakdown,
     earnings,
+    meta: { depth, researchCached: researchFromCache, engineVersion: VERDICT_ENGINE_VERSION },
     levels: {
       target1: stopTargets.target1,
       target2: stopTargets.target2,
@@ -307,11 +383,23 @@ const started = await startService({
 const { app, listen, close } = started;
 appLog = app.log;
 
+// ---- Daily Top-15 research run ---------------------------------------------
+initDailyReport({ resolveService, httpClient, log: appLog, appLog, generateVerdict });
+app.get('/daily-report', async () => getDailyReport());
+app.post('/daily-report/run', async (req, reply) => {
+  try {
+    const report = await runDailyReport('manual', req.traceCtx);
+    return reply.status(report.skipped ? 409 : 200).send(report);
+  } catch (err) {
+    return reply.status(502).send({ error: err.message });
+  }
+});
+
 app.post('/verdict', async (req, reply) => {
   const symbol = req.body?.symbol;
   if (!symbol) return reply.status(400).send({ error: 'body.symbol is required' });
   try {
-    return await generateVerdict(symbol, req.traceCtx);
+    return await generateVerdict(symbol, req.traceCtx, { depth: String(req.body?.depth || 'full'), refresh: req.body?.refresh === true });
   } catch (err) {
     return reply.status(err.statusCode || 500).send({ error: err.message });
   }
@@ -319,21 +407,34 @@ app.post('/verdict', async (req, reply) => {
 
 app.get('/verdict/:symbol', async (req, reply) => {
   try {
-    return await generateVerdict(req.params.symbol, req.traceCtx);
+    return await generateVerdict(req.params.symbol, req.traceCtx, verdictOptsFromQuery(req));
   } catch (err) {
     return reply.status(err.statusCode || 500).send({ error: err.message });
   }
 });
 
 // UI-contract compatible: GET /verdict?symbol=NVDA (same shape as the legacy Next.js route)
+// + depth=quant (zero-token alert checks) and refresh=1 (force regeneration).
+function verdictOptsFromQuery(req) {
+  return {
+    depth: String(req.query?.depth || 'full'),
+    refresh: req.query?.refresh === '1' || req.query?.refresh === 'true',
+  };
+}
+
 app.get('/verdict', async (req, reply) => {
   const symbol = req.query?.symbol;
   if (!symbol) return reply.status(400).send({ error: 'query.symbol is required' });
   try {
-    return await generateVerdict(symbol, req.traceCtx);
+    return await generateVerdict(symbol, req.traceCtx, verdictOptsFromQuery(req));
   } catch (err) {
     return reply.status(err.statusCode || 500).send({ error: err.message });
   }
 });
 
 await listen();
+appLog.info({ msg: `svc-verdict ready (engine ${VERDICT_ENGINE_VERSION})` });
+
+// Daily Top-15: catch up if today's run is missing, then schedule 08:30 ET daily.
+scheduleDailyReport();
+catchUpDailyReport();

@@ -31,18 +31,6 @@ class PortfolioService {
       totalPnLPercent: 0,
       positions: [],
       transactions: [],
-      watchlists: [
-        {
-          id: 'wl-default',
-          name: 'Core Tech & AI Leaders',
-          symbols: ['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'PLTR', 'AMD'],
-        },
-        {
-          id: 'wl-value',
-          name: 'Dividend & Value',
-          symbols: ['JPM', 'XOM', 'WMT', 'COST', 'PG'],
-        },
-      ],
     };
   }
 
@@ -288,43 +276,11 @@ class PortfolioService {
       cashBalance: initialCash,
       initialBalance: initialCash,
       totalEquity: initialCash,
-      watchlists: current.watchlists,
     };
     this.set(clientId, fresh);
     return fresh;
   }
 
-  /**
-   * Add ticker to watchlist
-   */
-  async addToWatchlist(watchlistId: string, symbol: string, clientId?: string): Promise<boolean> {
-    await this.ensureLoaded(clientId);
-    const state = this.get(clientId);
-    const cleanSymbol = symbol.trim().toUpperCase();
-    const wl = state.watchlists.find((w) => w.id === watchlistId) || state.watchlists[0];
-    if (wl && !wl.symbols.includes(cleanSymbol)) {
-      wl.symbols.push(cleanSymbol);
-      this.set(clientId, state);
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Remove ticker from watchlist
-   */
-  async removeFromWatchlist(watchlistId: string, symbol: string, clientId?: string): Promise<boolean> {
-    await this.ensureLoaded(clientId);
-    const state = this.get(clientId);
-    const cleanSymbol = symbol.trim().toUpperCase();
-    const wl = state.watchlists.find((w) => w.id === watchlistId) || state.watchlists[0];
-    if (wl) {
-      wl.symbols = wl.symbols.filter((s) => s !== cleanSymbol);
-      this.set(clientId, state);
-      return true;
-    }
-    return false;
-  }
 }
 
 export const portfolioService = new PortfolioService();

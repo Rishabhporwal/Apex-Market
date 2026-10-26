@@ -164,7 +164,9 @@ async function runCheckCycle(reason = 'scheduled') {
         const base = resolveServiceUrl('verdict');
         if (!base) throw new Error('no verdict service in SERVICES_JSON');
         // LLM narratives are slow — verdict service may take a while (60s timeout).
-        const res = await httpClient.fetch(`${base}/verdict?symbol=${encodeURIComponent(symbol)}`, {
+        // depth=quant: the alert cycle only reads action/confidence — the
+        // deterministic score is free and fresh; never pay for narratives here.
+        const res = await httpClient.fetch(`${base}/verdict?symbol=${encodeURIComponent(symbol)}&depth=quant`, {
           span: 'userdata.check.verdict', timeoutMs: 60_000, log,
         });
         const v = res.json || {};

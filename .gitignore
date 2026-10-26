@@ -14,3 +14,7 @@ data/filing-cache/
 # SQLite transient WAL/SHM files (userdata.db itself is tracked for easy clone-and-run)
 data/userdata.db-wal
 data/userdata.db-shm
+
+# verdict-owned runtime state: research cache + daily Top-15 reports
+data/verdict-cache/
+data/daily-runs/

@@ -35,8 +35,6 @@ export function PortfolioView({ onSelectSymbol, activeSymbol }: PortfolioViewPro
   const [executing, setExecuting] = useState(false);
   const [tradeMessage, setTradeMessage] = useState<{ text: string; isError: boolean } | null>(null);
 
-  // New Watchlist symbol input
-  const [newWatchlistSymbol, setNewWatchlistSymbol] = useState('');
 
   // Fetch portfolio state
   const loadPortfolio = async () => {
@@ -114,48 +112,6 @@ export function PortfolioView({ onSelectSymbol, activeSymbol }: PortfolioViewPro
     }
   };
 
-  // Add symbol to watchlist
-  const handleAddWatchlist = async () => {
-    if (!newWatchlistSymbol.trim()) return;
-    try {
-      const res = await fetch('/api/portfolio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'watchlist_add',
-          symbol: newWatchlistSymbol.trim().toUpperCase(),
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setPortfolio(data.state);
-        setNewWatchlistSymbol('');
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Remove symbol from watchlist
-  const handleRemoveWatchlist = async (sym: string) => {
-    try {
-      const res = await fetch('/api/portfolio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'watchlist_remove',
-          symbol: sym,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setPortfolio(data.state);
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   if (loading || !portfolio) {
     return (
       <div className="glass-panel rounded-2xl p-12 text-center text-slate-400 font-mono">
@@ -219,8 +175,8 @@ export function PortfolioView({ onSelectSymbol, activeSymbol }: PortfolioViewPro
         </div>
       </div>
 
-      {/* Trade Execution Ticket & Watchlists Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Trade Execution Ticket */}
+      <div>
         {/* Trade Execution Ticket */}
         <div className="glass-panel rounded-2xl p-6">
           <h3 className="text-sm font-bold font-mono uppercase tracking-wider text-slate-300 flex items-center gap-2 mb-4">
@@ -325,66 +281,8 @@ export function PortfolioView({ onSelectSymbol, activeSymbol }: PortfolioViewPro
           </form>
         </div>
 
-        {/* Watchlists Manager */}
-        <div className="glass-panel rounded-2xl p-6 lg:col-span-2">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800 pb-3 mb-4">
-            <div>
-              <h3 className="text-sm font-bold font-mono uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <PieChart className="h-4 w-4 text-cyan-400" /> Research Watchlists
-              </h3>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">Custom monitored equities</p>
-            </div>
-
-            {/* Quick Add Symbol */}
-            <div className="flex items-center gap-2 font-mono text-xs">
-              <input
-                type="text"
-                placeholder="Add symbol (e.g. AMD)..."
-                value={newWatchlistSymbol}
-                onChange={(e) => setNewWatchlistSymbol(e.target.value.toUpperCase())}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddWatchlist()}
-                className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500 w-44"
-              />
-              <button
-                onClick={handleAddWatchlist}
-                className="px-3 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold transition flex items-center gap-1"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            {portfolio.watchlists.map((wl) => (
-              <div key={wl.id} className="space-y-2">
-                <div className="text-xs font-mono font-bold text-slate-400">{wl.name}</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 font-mono text-xs">
-                  {wl.symbols.map((sym) => (
-                    <div
-                      key={sym}
-                      className="flex items-center justify-between p-2 rounded-lg bg-slate-900/60 border border-slate-800 hover:border-slate-700 transition"
-                    >
-                      <button
-                        onClick={() => onSelectSymbol(sym)}
-                        className="font-bold text-cyan-300 hover:text-cyan-400 transition"
-                      >
-                        {sym}
-                      </button>
-                      <button
-                        onClick={() => handleRemoveWatchlist(sym)}
-                        className="text-slate-500 hover:text-rose-400 transition p-1"
-                        title="Remove from watchlist"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
+
 
       {/* Holdings & Positions Table */}
       <div className="glass-panel rounded-2xl p-6">

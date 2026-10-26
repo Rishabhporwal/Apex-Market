@@ -9,7 +9,6 @@
  */
 import Fastify from 'fastify';
 import { logger, traceCtx, httpClient, loadEnvLocal } from '../shared/lib.mjs';
-import { ensurePredictiveInsight } from '../shared/sentimentInsight.mjs';
 
 loadEnvLocal();
 
@@ -146,7 +145,8 @@ function symbolQueryToPath(url, apiPrefix, basePath, { defaultSymbol = 'NVDA' } 
 // Slower downstreams (LLM, multi-service orchestration, backtests) get a
 // longer proxy timeout than plain data-plane reads.
 function proxyTimeoutFor(url) {
-  if (url.includes('/research') || url.includes('/ai-research') || url.includes('/prediction') || url.includes('/verdict') || url.includes('/narrate') || url.includes('/ensemble') || url.includes('/filing-qa')) return 120_000;
+  if (url.includes('/research') || url.includes('/ai-research') || url.includes('/prediction') || url.includes('/verdict') || url.includes('/narrate') || url.includes('/ensemble') || url.includes('/filing-qa') || url.includes('/daily-report/run')) return 120_000;
+  if (url.includes('/daily-report')) return 600_000; // full Top-15 run takes minutes
   if (url.includes('/backtest')) return 75_000;
   if (url.includes('/financials') || url.includes('/technical') || url.includes('/sentiment')) return 40_000;
   return 25_000;
@@ -175,9 +175,9 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/news/')) {
     serviceName = 'news';
     downstreamPath = url.replace(/^\/api\/news/, '/drivers');
-  } else if (url.startsWith('/api/verdict')) {
+  } else if (url.startsWith('/api/verdict') || url.startsWith('/api/daily-report')) {
     serviceName = 'verdict';
-    downstreamPath = url.replace(/^\/api\/verdict/, '/verdict');
+    downstreamPath = url.replace(/^\/api\/verdict/, '/verdict').replace(/^\/api\/daily-report/, '/daily-report');
   } else if (url.startsWith('/api/llm/')) {
     serviceName = 'llm';
     downstreamPath = url.replace(/^\/api\/llm/, '');
@@ -200,10 +200,6 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/technical')) {
     serviceName = 'research';
     downstreamPath = symbolQueryToPath(url, '/api/technical', '/technical');
-  } else if (url.startsWith('/api/sentiment')) {
-    // news downstream /sentiment/:symbol (path param, unlike the legacy query param)
-    serviceName = 'news';
-    downstreamPath = symbolQueryToPath(url, '/api/sentiment', '/sentiment');
   } else if (url.startsWith('/api/prediction')) {
     serviceName = 'analytics';
     downstreamPath = symbolQueryToPath(url, '/api/prediction', '/prediction');
@@ -259,14 +255,6 @@ app.all('/api/*', async (req, reply) => {
     timeoutMs: proxyTimeoutFor(url),
     log,
   });
-
-  // Shape adaptation in the mapping: svc-news /sentiment/:symbol predates the
-  // `predictiveInsight` block of the legacy /api/sentiment payload — fill it in
-  // here (exact port of sentimentService.generatePredictions) so the response
-  // is byte-compatible with the monolith route.
-  if (serviceName === 'news' && url.startsWith('/api/sentiment') && res.json && !res.json.error) {
-    res.json = ensurePredictiveInsight(res.json);
-  }
 
   if (cacheable(req) && res.ok) {
     // Trim cache below a sane bound (LRU-ish: drop oldest insertion).

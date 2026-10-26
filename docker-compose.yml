@@ -146,6 +146,11 @@ services:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: verdict } }
     container_name: apex-verdict
+    volumes:
+      # Read-WRITE: verdict owns data/verdict-cache (research-layer cache) and
+      # data/daily-runs (Top-15 reports). It never opens any .duckdb file, so
+      # the DuckDB single-writer rule is unaffected.
+      - ./data:/app/data
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0

@@ -6,4 +6,3 @@ export { technicalService } from './technicalService';
 export { backtestService } from './backtestService';
 export { screenerService } from './screenerService';
 export { portfolioService } from './portfolioService';
-export { aiPredictionService } from './aiPredictionService';

@@ -315,11 +315,6 @@ export interface PortfolioState {
   totalPnLPercent: number;
   positions: PortfolioPosition[];
   transactions: PortfolioTransaction[];
-  watchlists: {
-    id: string;
-    name: string;
-    symbols: string[];
-  }[];
 }
 
 export interface PredictionPriceTargets {

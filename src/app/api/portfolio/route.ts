@@ -59,20 +59,6 @@ export async function POST(req: NextRequest) {
       return withCookie(NextResponse.json({ success: true, message: 'Portfolio reset', state }), clientId, setCookie);
     }
 
-    if (action === 'watchlist_add') {
-      const { watchlistId, symbol } = body;
-      const success = await portfolioService.addToWatchlist(watchlistId || 'wl-default', symbol, clientId);
-      const state = await portfolioService.getPortfolioState(clientId);
-      return withCookie(NextResponse.json({ success, state }), clientId, setCookie);
-    }
-
-    if (action === 'watchlist_remove') {
-      const { watchlistId, symbol } = body;
-      const success = await portfolioService.removeFromWatchlist(watchlistId || 'wl-default', symbol, clientId);
-      const state = await portfolioService.getPortfolioState(clientId);
-      return withCookie(NextResponse.json({ success, state }), clientId, setCookie);
-    }
-
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
   } catch (error: any) {
     console.error('Portfolio POST API error:', error);
