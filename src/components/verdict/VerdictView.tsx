@@ -56,6 +56,15 @@ interface AiVerdict {
     source: string;
   };
   technicals: { trend: string; rsi14?: number; sentimentScore?: number };
+  earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
+  breakdown?: {
+    trend: { points: number; detail: string };
+    rsi: { points: number; detail: string };
+    sentiment: { points: number; detail: string };
+    fundamentals: { points: number; max: number; used: boolean; detail: string; factors: { name: string; value: string; points: number }[] };
+    bearishVotes?: { count: number; reasons: string[] };
+    score: number;
+  };
   aiNarrative?: string;
   ensemble?: { consensus: string | null; agreeing: number; of: number; votes: { model: string; verdict: string | null; confidenceGuess: number | null; error?: string }[] } | null;
   disclaimer: string;
@@ -142,6 +151,70 @@ function Tick({ left, color, label, tip }: { left: string; color: string; label:
   );
 }
 
+/** Drill-down: the per-component receipts behind the verdict score. */
+function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdict['breakdown']>; action: string }) {
+  const [open, setOpen] = useState(false);
+  const total = breakdown.score ?? breakdown.trend.points + breakdown.rsi.points + breakdown.sentiment.points + breakdown.fundamentals.points;
+  const rows: { key: string; label: string; points: number; detail: string }[] = [
+    { key: 'trend', label: 'Trend alignment', points: breakdown.trend.points, detail: breakdown.trend.detail },
+    { key: 'rsi', label: 'RSI position', points: breakdown.rsi.points, detail: breakdown.rsi.detail },
+    { key: 'sentiment', label: 'News sentiment', points: breakdown.sentiment.points, detail: breakdown.sentiment.detail },
+    { key: 'fundamentals', label: 'Fundamental quality', points: breakdown.fundamentals.points, detail: breakdown.fundamentals.detail },
+  ];
+  const ptsClass = (p: number) => (p > 0 ? 'text-emerald-400' : p < 0 ? 'text-rose-400' : 'text-slate-500');
+  return (
+    <div className="glass-panel rounded-2xl p-6">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-left group">
+        <h3 className="font-bold text-white flex items-center gap-2">
+          <BrainCircuit className="h-4 w-4 text-cyan-400" /> Why this verdict?
+          <span className="text-[10px] font-normal text-slate-500 hidden sm:inline">— the receipts behind every point</span>
+        </h3>
+        <span className="flex items-center gap-2">
+          <span className={`text-xs font-semibold ${ptsClass(total)}`}>{total > 0 ? '+' : ''}{total} score</span>
+          {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500 group-hover:text-cyan-300" />}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-4 space-y-3">
+          {rows.map((r) => (
+            <div key={r.key} className="flex items-start gap-3 bg-slate-900/40 border border-slate-800 rounded-xl p-3">
+              <span className={`shrink-0 min-w-[52px] text-center text-xs font-bold rounded-lg px-2 py-1 ${r.points > 0 ? 'bg-emerald-500/15 text-emerald-400' : r.points < 0 ? 'bg-rose-500/15 text-rose-400' : 'bg-slate-700/40 text-slate-400'}`}>
+                {r.points > 0 ? '+' : ''}{r.points}
+              </span>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-200">{r.label}</div>
+                <div className="text-xs text-slate-400 mt-0.5">{r.detail}</div>
+                {r.key === 'fundamentals' && breakdown.fundamentals.factors.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {breakdown.fundamentals.factors.map((f) => (
+                      <div key={f.name} className="flex items-center gap-2 text-[11px] text-slate-500">
+                        <span className="text-slate-400">{f.name}</span>
+                        <span className="text-slate-500">{f.value}</span>
+                        <span className={ptsClass(f.points)}>{f.points > 0 ? '+' : ''}{f.points}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {breakdown.bearishVotes && (
+            <div className="text-xs bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-rose-200">
+              <strong className="text-rose-300">SELL confirmation gate:</strong> {breakdown.bearishVotes.count} of 2+ bearish votes
+              {breakdown.bearishVotes.count >= 2 ? ' — confirmed' : ' — not enough, downgraded to HOLD (avoids value traps)'}.
+              {breakdown.bearishVotes.reasons.length > 0 && <div className="mt-1 text-rose-300/80">{breakdown.bearishVotes.reasons.join(' · ')}</div>}
+            </div>
+          )}
+          <div className="text-[11px] text-slate-500">
+            Deterministic scoring — same math the backtester runs. Trend ±25 · RSI ±15 · sentiment ±25 · fundamentals ±35. The total score is the components' sum, rounded.
+            {action === 'SELL' ? '' : ' The AI narrative can only nudge the action when the score sits within 15 points of a boundary.'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function VerdictView({ symbol }: { symbol: string }) {
   const [v, setV] = useState<AiVerdict | null>(null);
   const [loading, setLoading] = useState(true);
@@ -164,7 +237,9 @@ export function VerdictView({ symbol }: { symbol: string }) {
     }
   };
 
-  // Next earnings date (earnings-calendar awareness)
+  // Next earnings date (earnings-calendar awareness). The verdict response now
+  // carries `earnings` (svc-verdict fetches it in-mesh); this fetch is only a
+  // fallback for cached/older responses.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -236,7 +311,8 @@ export function VerdictView({ symbol }: { symbol: string }) {
   }
 
   const style = ACTION_STYLES[v.verdict.action] ?? ACTION_STYLES.NEUTRAL;
-  const ed = earnings && earnings.daysUntil != null && earnings.daysUntil <= 21 && earnings.daysUntil >= -1 ? earnings : null;
+  const earningsInfo = v.earnings ?? earnings;
+  const ed = earningsInfo && earningsInfo.daysUntil != null && earningsInfo.daysUntil <= 21 && earningsInfo.daysUntil >= -1 ? earningsInfo : null;
 
   return (
     <div className="space-y-5">
@@ -321,6 +397,9 @@ export function VerdictView({ symbol }: { symbol: string }) {
         <LevelCard label="Support" help="price" value={v.levels.supports[0]} color="text-rose-300" sub="price tends to bounce here" />
         <LevelCard label="Resistance" help="price" value={v.levels.resistances[0]} color="text-amber-300" sub="price tends to stall here" />
       </div>
+
+      {/* Score drill-down — the receipts behind the verdict */}
+      {v.breakdown && <ScoreBreakdown breakdown={v.breakdown} action={v.verdict.action} />}
 
       {/* Strategy */}
       <div className="glass-panel rounded-2xl p-6">

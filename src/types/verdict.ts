@@ -23,6 +23,30 @@ export interface VerdictFundamentals {
   source: string; // e.g. 'SEC EDGAR (FY2024)' or 'Yahoo Finance'
 }
 
+/** One scoring component's receipt — shown verbatim in the drill-down panel. */
+export interface VerdictScoreComponent {
+  points: number;
+  detail: string;
+}
+
+export interface VerdictBreakdown {
+  score: number;
+  trend: VerdictScoreComponent;
+  rsi: VerdictScoreComponent;
+  sentiment: VerdictScoreComponent;
+  fundamentals: VerdictScoreComponent & {
+    max: number;
+    used: boolean;
+    factors: { name: string; value: string; points: number }[];
+  };
+  bearishVotes?: { count: number; reasons: string[] };
+}
+
+export interface VerdictEarnings {
+  earningsDate: string; // ISO
+  daysUntil: number | null;
+}
+
 export interface AiVerdict {
   symbol: string;
   name: string;
@@ -60,6 +84,10 @@ export interface AiVerdict {
     riskNote: string;
   };
   fundamentals?: VerdictFundamentals;
+  /** Per-component score receipts (drill-down "show the receipts" panel). */
+  breakdown?: VerdictBreakdown;
+  /** Next earnings date when known (svc-research earnings-calendar). */
+  earnings?: VerdictEarnings | null;
   technicals: {
     trend: 'up' | 'down' | 'sideways';
     rsi14?: number;

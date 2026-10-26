@@ -97,32 +97,63 @@ export function scoreVerdict(input) {
 
   let score = 0;
   // Trend alignment ±25
-  if (trend === 'up') score += 25;
-  else if (trend === 'down') score -= 25;
+  let trendPts = 0;
+  if (trend === 'up') trendPts = 25;
+  else if (trend === 'down') trendPts = -25;
+  score += trendPts;
   // RSI position ±15
+  let rsiPts = 0;
+  let rsiDetail = 'insufficient history for RSI(14)';
   if (rsiVal !== undefined) {
-    if (rsiVal < 30) score += 15;
-    else if (rsiVal < 45) score += 7;
-    else if (rsiVal > 70) score -= 15;
-    else if (rsiVal > 55) score -= 7;
+    const r = rsiVal.toFixed(1);
+    if (rsiVal < 30) { rsiPts = 15; rsiDetail = `RSI ${r} — oversold (rebound zone)`; }
+    else if (rsiVal < 45) { rsiPts = 7; rsiDetail = `RSI ${r} — cooling off, favorable entry range`; }
+    else if (rsiVal > 70) { rsiPts = -15; rsiDetail = `RSI ${r} — overbought (exhaustion risk)`; }
+    else if (rsiVal > 55) { rsiPts = -7; rsiDetail = `RSI ${r} — hot, stretched momentum`; }
+    else { rsiDetail = `RSI ${r} — neutral zone (no points)`; }
   }
+  score += rsiPts;
   // News sentiment ±25 (clamped)
-  score += Math.max(-25, Math.min(25, sentimentScore / 4));
+  const sentPts = Math.max(-25, Math.min(25, sentimentScore / 4));
+  score += sentPts;
   // Fundamentals ±35 (clamped)
   let fundamentalsUsed = false;
+  let fundPts = 0;
+  const fundFactors = [];
   if (fundamentals) {
-    let f = 0;
-    if (fundamentals.revenueGrowthYoY !== undefined) f += fundamentals.revenueGrowthYoY > 10 ? 12 : fundamentals.revenueGrowthYoY > 0 ? 6 : fundamentals.revenueGrowthYoY > -10 ? -6 : -12;
-    if (fundamentals.netMargin !== undefined) f += fundamentals.netMargin > 20 ? 9 : fundamentals.netMargin > 5 ? 5 : fundamentals.netMargin > 0 ? 0 : -9;
-    if (fundamentals.roe !== undefined) f += fundamentals.roe > 20 ? 8 : fundamentals.roe > 10 ? 4 : fundamentals.roe > 0 ? 0 : -8;
-    if (fundamentals.peRatio !== undefined) f += fundamentals.peRatio > 0 && fundamentals.peRatio < 25 ? 6 : fundamentals.peRatio >= 25 && fundamentals.peRatio <= 60 ? 0 : -6;
+    if (fundamentals.revenueGrowthYoY !== undefined) {
+      const g = fundamentals.revenueGrowthYoY;
+      const p = g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12;
+      fundPts += p;
+      fundFactors.push({ name: 'Revenue growth (YoY)', value: `${g.toFixed(1)}%`, points: p });
+    }
+    if (fundamentals.netMargin !== undefined) {
+      const m = fundamentals.netMargin;
+      const p = m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9;
+      fundPts += p;
+      fundFactors.push({ name: 'Net margin', value: `${m.toFixed(1)}%`, points: p });
+    }
+    if (fundamentals.roe !== undefined) {
+      const r = fundamentals.roe;
+      const p = r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8;
+      fundPts += p;
+      fundFactors.push({ name: 'Return on equity', value: `${r.toFixed(1)}%`, points: p });
+    }
+    if (fundamentals.peRatio !== undefined) {
+      const pe = fundamentals.peRatio;
+      const p = pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6;
+      fundPts += p;
+      fundFactors.push({ name: 'P/E ratio', value: pe.toFixed(1), points: p });
+    }
     fundamentalsUsed = true;
-    score += Math.max(-35, Math.min(35, f));
+    fundPts = Math.max(-35, Math.min(35, fundPts));
+    score += fundPts;
   }
 
   score = Math.round(Math.max(-100, Math.min(100, score)));
 
   let action;
+  let bearishVotes;
   if (score >= 35) action = 'BUY';
   else if (score >= 15) action = 'HOLD'; // bullish lean — summary text conveys it
   else if (score > -15) action = 'HOLD';
@@ -130,14 +161,37 @@ export function scoreVerdict(input) {
     // SELL requires confirmation: a bare low score is frequently a temporary
     // dip in a structurally sound company (value traps). Demand at least TWO
     // independent bearish confirmations from {trend, fundamentals, momentum}.
-    let bearishVotes = 0;
-    if (trend === 'down') bearishVotes++;
-    if (fundamentals && ((fundamentals.revenueGrowthYoY !== undefined && fundamentals.revenueGrowthYoY < -5) || (fundamentals.netMargin !== undefined && fundamentals.netMargin < 0))) bearishVotes++;
-    if (rsiVal !== undefined && rsiVal > 70) bearishVotes++; // momentum exhaustion
-    action = bearishVotes >= 2 ? 'SELL' : 'HOLD';
+    let bearishVoteCount = 0;
+    const reasons = [];
+    if (trend === 'down') { bearishVoteCount++; reasons.push('downtrend (price below SMA50 & SMA200)'); }
+    if (fundamentals && ((fundamentals.revenueGrowthYoY !== undefined && fundamentals.revenueGrowthYoY < -5) || (fundamentals.netMargin !== undefined && fundamentals.netMargin < 0))) { bearishVoteCount++; reasons.push('deteriorating fundamentals (shrinking revenue or negative margin)'); }
+    if (rsiVal !== undefined && rsiVal > 70) { bearishVoteCount++; reasons.push('momentum exhaustion (RSI > 70)'); }
+    action = bearishVoteCount >= 2 ? 'SELL' : 'HOLD';
+    bearishVotes = { count: bearishVoteCount, reasons };
   }
 
   const confidence = Math.round(Math.min(95, 45 + Math.abs(score) / 2));
 
-  return { score, action, confidence, trend, rsi14: rsiVal, fundamentalsUsed };
+  const breakdown = {
+    score,
+    trend: {
+      points: trendPts,
+      detail: trend === 'up' ? 'price above SMA50 & SMA200 (uptrend)' : trend === 'down' ? 'price below SMA50 & SMA200 (downtrend)' : 'mixed moving averages (sideways)',
+    },
+    rsi: { points: rsiPts, detail: rsiDetail },
+    sentiment: {
+      points: Math.round(sentPts * 10) / 10,
+      detail: sentimentScore === 0 ? 'no meaningful news sentiment measured' : `news sentiment score ${sentimentScore.toFixed(0)} (÷4, clamped ±25)`,
+    },
+    fundamentals: {
+      points: Math.round(fundPts * 10) / 10,
+      max: 35,
+      used: fundamentalsUsed,
+      factors: fundFactors,
+      detail: fundamentalsUsed ? `${fundFactors.length} quality factors from SEC filings` : 'no EDGAR fundamentals available for this symbol',
+    },
+    ...(bearishVotes ? { bearishVotes } : {}),
+  };
+
+  return { score, action, confidence, trend, rsi14: rsiVal, fundamentalsUsed, breakdown };
 }

@@ -62,11 +62,13 @@ async function generateVerdict(symbol, ctx) {
   if (!clean) throw Object.assign(new Error('Symbol is required'), { statusCode: 400 });
 
   // ---- Gather inputs; each fetch degrades independently -------------------
-  const [quoteRes, candlesRes, newsRes, edgarRes] = await Promise.allSettled([
+  const [quoteRes, candlesRes, newsRes, edgarRes, earningsRes] = await Promise.allSettled([
     callPeer('market-data', `/quote/${encodeURIComponent(clean)}`, { ctx }),
     callPeer('market-data', `/candles/${encodeURIComponent(clean)}?timeframe=1y&interval=1d`, { ctx }),
     callPeer('news', `/drivers/${encodeURIComponent(clean)}`, { ctx }),
     callPeer('edgar', `/company/${encodeURIComponent(clean)}`, { ctx }),
+    // Earnings-calendar awareness: surfaced as a badge + caution in the UI.
+    callPeer('research', `/earnings/${encodeURIComponent(clean)}`, { ctx, timeoutMs: 20_000 }),
   ]);
 
   const quote = quoteRes.status === 'fulfilled' ? quoteRes.value : null;
@@ -75,7 +77,10 @@ async function generateVerdict(symbol, ctx) {
     ? { newsItems: newsRes.value.newsItems ?? [], bullish: newsRes.value.bullish ?? [], bearish: newsRes.value.bearish ?? [], sentimentScore: newsRes.value.sentimentScore ?? 0 }
     : { newsItems: [], bullish: [], bearish: [], sentimentScore: 0 };
   const edgarFundamentals = edgarRes.status === 'fulfilled' ? edgarRes.value?.fundamentals ?? null : null;
-  for (const r of [quoteRes, candlesRes, newsRes, edgarRes]) {
+  const earnings = earningsRes.status === 'fulfilled' && earningsRes.value?.earningsDate
+    ? { earningsDate: earningsRes.value.earningsDate, daysUntil: earningsRes.value.daysUntil }
+    : null;
+  for (const r of [quoteRes, candlesRes, newsRes, edgarRes, earningsRes]) {
     if (r.status === 'rejected') appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `verdict input degraded: ${r.reason?.message}` });
   }
 
@@ -198,6 +203,8 @@ async function generateVerdict(symbol, ctx) {
     price: Math.round(price * 100) / 100,
     asOf: Date.now(),
     verdict: { action, confidence, horizon, summary },
+    breakdown: quant.breakdown,
+    earnings,
     levels: {
       target1: stopTargets.target1,
       target2: stopTargets.target2,

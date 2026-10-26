@@ -10,3 +10,7 @@ services/.run/
 
 # immutable SEC filing text cache written by svc-research
 data/filing-cache/
+
+# SQLite transient WAL/SHM files (userdata.db itself is tracked for easy clone-and-run)
+data/userdata.db-wal
+data/userdata.db-shm

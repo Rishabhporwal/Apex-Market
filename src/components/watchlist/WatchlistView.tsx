@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Star, Bell, Trash2, RefreshCw, TrendingUp, TrendingDown, Minus, Plus, CheckCheck, Clock } from 'lucide-react';
+import { Star, Bell, Trash2, RefreshCw, TrendingUp, TrendingDown, Minus, Plus, CheckCheck, Clock, CalendarClock } from 'lucide-react';
 
 interface WatchedSymbol {
   symbol: string;
@@ -55,6 +55,7 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const [earningsMap, setEarningsMap] = useState<Record<string, { earningsDate: string | null; daysUntil: number | null }>>({});
 
   const load = useCallback(async () => {
     try {
@@ -75,6 +76,25 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
       setLoading(false);
     }
   }, []);
+
+  // Earnings-calendar per watched symbol (badge on each card). Kept cheap:
+  // one parallel batch per watchlist load, capped, failures silently skipped.
+  const loadEarnings = useCallback(async (list: WatchedSymbol[]) => {
+    const targets = list.slice(0, 30);
+    const results = await Promise.allSettled(
+      targets.map((s) => fetch(`/api/earnings?symbol=${encodeURIComponent(s.symbol)}`).then((r) => (r.ok ? r.json() : null)))
+    );
+    const map: Record<string, { earningsDate: string | null; daysUntil: number | null }> = {};
+    results.forEach((r, i) => {
+      const d = r.status === 'fulfilled' ? r.value : null;
+      if (d?.earningsDate) map[targets[i].symbol] = d;
+    });
+    setEarningsMap(map);
+  }, []);
+
+  useEffect(() => {
+    if (symbols.length) void loadEarnings(symbols);
+  }, [symbols, loadEarnings]);
 
   useEffect(() => {
     load();
@@ -225,7 +245,21 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                     </div>
                     {s.lastVerdict && (
                       <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
-                        <span>{s.lastVerdict.price != null ? `$${s.lastVerdict.price.toFixed(2)}` : '—'}</span>
+                        <span className="flex items-center gap-2">
+                          {s.lastVerdict.price != null ? `$${s.lastVerdict.price.toFixed(2)}` : '—'}
+                          {(() => {
+                            const e = earningsMap[s.symbol];
+                            if (!e || e.daysUntil == null || e.daysUntil > 21 || e.daysUntil < -1) return null;
+                            return (
+                              <span
+                                title={`Earnings ${e.daysUntil <= 0 ? 'imminent' : `in ${e.daysUntil} day${e.daysUntil === 1 ? '' : 's'}`} — verdicts can shift sharply around reports`}
+                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${e.daysUntil <= 7 ? 'bg-amber-500/15 text-amber-400' : 'bg-slate-700/40 text-slate-400'}`}
+                              >
+                                <CalendarClock className="h-3 w-3" /> ER {e.daysUntil <= 0 ? 'now' : `${e.daysUntil}d`}
+                              </span>
+                            );
+                          })()}
+                        </span>
                         <span className="inline-flex items-center gap-1">
                           <Clock className="h-3 w-3" /> checked {timeAgo(s.lastVerdict.checkedAt)}
                         </span>
