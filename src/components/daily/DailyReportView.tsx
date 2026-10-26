@@ -98,11 +98,11 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
         <div className="flex flex-col lg:flex-row lg:items-center gap-4 justify-between">
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Trophy className="h-5 w-5 text-amber-400" /> Today's Top 8
+              <Trophy className="h-5 w-5 text-amber-400" /> Today's Top 5
             </h2>
             <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-              The 8 highest-quality companies (SEC-filed fundamentals) analyzed once daily, one hour before market open —
-              ranked best-first. Same research is reused all day; prices and levels stay live.
+              The 5 highest-quality companies under $400/share (SEC-filed fundamentals) analyzed once daily, one hour
+              before market open — ranked best-first. Sized for a small account. Same research is reused all day; prices and levels stay live.
             </p>
             {report?.available && (
               <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">

@@ -20,7 +20,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const DAILY_DIR = path.join(process.env.DATA_DIR || '/app/data', 'daily-runs');
-const UNIVERSE_SIZE = 8;
+const UNIVERSE_SIZE = 5;
+// Capital-fit guard: the report targets small accounts — only names whose
+// share price keeps a single share (and a sensible position) within reach.
+const MAX_SHARE_PRICE = 400;
+// Investable-universe hygiene (the fundamentals screen otherwise lets derivative
+// share classes and pennies through): no sub-$5 stocks, no warrants/units/
+// rights (NASDAQ 5-letter suffix convention), no preferred classes (dash), and
+// no derivative-named instruments (live quote names like "… Warrants",
+// "… Units", "… Notes", "Preferred Stock" — SEC's ticker map includes these,
+// so the name is the only reliable signal).
+const MIN_SHARE_PRICE = 5;
+const DERIVATIVE_TICKER_RE = /(^[A-Z]{4,}[WUR]$)|-/;
+const DERIVATIVE_NAME_RE = /\b(warrant|unit|right|note|debenture|preferred|preference|depositary|subscription)\b/i;
 const UNIVERSE_REFRESH_DAYS = 7;
 const RUN_HOUR_ET = 8; // 08:30 ET = 1 hour before the 9:30 open
 const RUN_MINUTE_ET = 30;
@@ -58,14 +70,64 @@ async function buildUniverse(ctx) {
   const { resolveService, httpClient, appLog } = deps;
   const base = await resolveService('edgar', ctx);
   // Quality screen mirrors the platform's 'quality' preset (growth 10%+,
-  // margin 10%+, ROE 12%+), fetched wide then ranked by the composite score.
+  // margin 10%+, ROE 12%+). Ranking uses fundamentals only; the price cap is
+  // applied by fetching LIVE quotes while walking the ranked list — the
+  // latest-prices.json snapshot is often stale/sparse, so we never trust it
+  // for the capital-fit filter.
   const res = await httpClient.fetch(
-    `${base}/screener?minRevenueGrowth=10&minNetMargin=10&minRoe=12&limit=80`,
+    `${base}/screener?minRevenueGrowth=10&minNetMargin=10&minRoe=12&limit=150`,
     { ctx, span: 'verdict.daily.universe', timeoutMs: 60_000, log: appLog }
   );
-  const rows = res.json?.results || [];
-  if (!rows.length) throw new Error('quality screen returned no companies — is the EDGAR warehouse populated?');
-  const ranked = rows
+  // One entry per CIK: derivative share classes (notes/warrants/preferreds)
+  // inherit the issuer's fundamentals, so the screen can't reject them. Two
+  // layers:
+  //  1. CIK dedup — keep the shortest ticker per CIK (the primary common
+  //     class, e.g. FTAI over FTAIM) when both appear in the screen.
+  //  2. Sibling check — a candidate whose CIK has a SHORTER mapped ticker
+  //     (even when that sibling isn't in the screen, e.g. FTAI not ingested)
+  //     is itself a derivative class; reject it. SEC's ticker map is the
+  //     authority (same file svc-research caches for filing-context).
+  const rows0 = res.json?.results || [];
+  if (!rows0.length) throw new Error('quality screen returned no companies — is the EDGAR warehouse populated?');
+  let tickerToCik = new Map();
+  let cikToTickers = new Map();
+  try {
+    const map = await fetch('https://www.sec.gov/files/company_tickers.json', {
+      headers: { 'User-Agent': 'Research Platform <admin@researchplatform.dev>' },
+      signal: AbortSignal.timeout(15_000),
+    }).then((r) => r.json());
+    for (const v of Object.values(map)) {
+      const t = String(v.ticker).toUpperCase();
+      tickerToCik.set(t, v.cik_str);
+      if (!cikToTickers.has(v.cik_str)) cikToTickers.set(v.cik_str, []);
+      cikToTickers.get(v.cik_str).push(t);
+    }
+  } catch (err) {
+    appLog.warn({ span: 'verdict.daily', msg: `ticker map fetch failed (${err.message}) — CIK dedup disabled this run` });
+  }
+  const byCik = new Map();
+  for (const r of rows0) {
+    const cik = tickerToCik.get(r.symbol);
+    const key = cik != null ? `cik:${cik}` : `sym:${r.symbol}`;
+    const prev = byCik.get(key);
+    if (!prev || r.symbol.length < prev.symbol.length) byCik.set(key, r);
+  }
+  const deduped = [...byCik.values()].filter((r) => {
+    const cik = tickerToCik.get(r.symbol);
+    if (cik == null) return true;
+    const siblings = cikToTickers.get(cik) || [];
+    // primary = shortest ticker for the CIK; reject anything longer
+    const primary = siblings.reduce((a, b) => (b.length < a.length ? b : a), r.symbol);
+    if (r.symbol !== primary) {
+      appLog.info({ span: 'verdict.daily', msg: `universe dedup: ${r.symbol} is a secondary class of ${primary} (${cik}), rejected` });
+      return false;
+    }
+    return true;
+  });
+  appLog.info({ span: 'verdict.daily', msg: `universe dedup: ${rows0.length} rows -> ${deduped.length} unique issuers` });
+  const rows = deduped;
+
+  const ranked = deduped
     .map((r) => ({
       symbol: r.symbol,
       name: r.name,
@@ -78,9 +140,46 @@ async function buildUniverse(ctx) {
         marketCap: r.marketCap,
       },
     }))
-    .sort((a, b) => b.qualityScore - a.qualityScore || (b.metrics.marketCap || 0) - (a.metrics.marketCap || 0))
-    .slice(0, UNIVERSE_SIZE);
-  return ranked;
+    .sort((a, b) => b.qualityScore - a.qualityScore || (b.metrics.marketCap || 0) - (a.metrics.marketCap || 0));
+
+  // Walk the ranked list, fetching each candidate's LIVE quote (price + name),
+  // until the universe is full. Unpriced/failed quotes are skipped without
+  // aborting the walk; derivative-named instruments are rejected here because
+  // SEC's ticker map happily maps warrants and notes to CIKs.
+  const mdBase = await resolveService('market-data', ctx).catch(() => null);
+  const picked = [];
+  let quoteFor = async () => null;
+  if (mdBase) {
+    quoteFor = async (symbol) => {
+      try {
+        const q = await httpClient.fetch(`${mdBase}/quote/${encodeURIComponent(symbol)}`, { ctx, span: 'verdict.daily.universe.price', timeoutMs: 8_000, log: appLog });
+        const p = q.json?.price;
+        return p && typeof p === 'number' && p > 0 ? q.json : null;
+      } catch {
+        return null;
+      }
+    };
+  }
+  for (const cand of ranked) {
+    if (picked.length >= UNIVERSE_SIZE) break;
+    if (DERIVATIVE_TICKER_RE.test(cand.symbol)) continue; // warrants/units/rights/preferreds
+    const q = await quoteFor(cand.symbol);
+    if (!q) {
+      appLog.warn({ span: 'verdict.daily', msg: `universe walk: no live quote for ${cand.symbol}, skipped` });
+      continue;
+    }
+    if (DERIVATIVE_NAME_RE.test(q.name || '')) {
+      appLog.info({ span: 'verdict.daily', msg: `universe walk: ${cand.symbol} rejected (derivative name: "${q.name}")` });
+      continue;
+    }
+    if (q.price < MIN_SHARE_PRICE || q.price >= MAX_SHARE_PRICE) continue;
+    cand.metrics.price = q.price;
+    cand.name = q.name || cand.name;
+    picked.push(cand);
+  }
+  if (!picked.length) throw new Error(`no quality companies under $${MAX_SHARE_PRICE} — widen the screen or check the price feed`);
+  appLog.info({ span: 'verdict.daily', msg: `universe walk: ${picked.length} of ${ranked.length} candidates under $${MAX_SHARE_PRICE}` });
+  return picked;
 }
 
 function readUniverse() {
