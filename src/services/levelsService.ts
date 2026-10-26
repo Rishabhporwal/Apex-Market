@@ -187,5 +187,14 @@ export function getStopLossAndTargets(
     return { stopLoss: r2(stop), target1: r2(t1), target2: r2(t2) };
   }
 
-  return {};
+    // HOLD/NEUTRAL/unknown: defensive long-style plan (mirror of levels.mjs fix —
+  // never leave the backtester without stop/targets for non-BUY/SELL actions).
+  const nearestSupport = supports.length ? Math.max(...supports) : undefined;
+  const stop = Math.min(nearestSupport ?? price - 2 * a, price - 2 * a);
+  const t1 = resistances.length
+    ? Math.min(resistances[0] + a, price + 3 * a)
+    : price + 2 * a;
+  const nextRes = resistances.find((r) => r > t1);
+  const t2 = nextRes !== undefined ? nextRes + a : price + 3 * a;
+  return { stopLoss: r2(stop), target1: r2(t1), target2: r2(t2) };
 }
