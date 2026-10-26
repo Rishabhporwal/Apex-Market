@@ -12,9 +12,12 @@
  *    fiscal period end).
  *  - News/LLM are excluded from scoring (no historical news feed) — this makes
  *    results a lower-bound, not a fantasy.
- *  - Forward return = price change over the next `horizonDays` (default 90).
+ *  - Forward return = price change over the next `horizonDays` (default 90),
+ *    evaluated per horizon at 5d, 21d AND the CLI horizon (each printed).
  *  - Transaction costs: 10 bps per side (20 bps round trip) deducted from
  *    every traded signal (BUY = long, SELL = short) — see COST_BPS_PER_SIDE.
+ *  - Significance: bootstrap 95% CIs on TICKER-level alpha means (1000 draws,
+ *    deterministic seed) so overlapping forward windows can't fake edge.
  *  - Benchmark: SPY buy-and-hold over the same windows.
  *  - Emits data/calibration.json: score-band -> observed target1 hit-rate
  *    (price reached target1 within the horizon before hitting the stop),
@@ -53,6 +56,22 @@ const HORIZON = Number(getArg('horizon', 90)); // forward return window in calen
 const TOP = Number(getArg('top', 150)); // how many S&P names to test (liquidity-first)
 const TICKERS_ARG = getArg('tickers', null);
 
+// ---- per-horizon evaluation (audit fix) ----
+// The shipped trade windows are 5 and 21 days, but the report only ever
+// printed the `--horizon` window (90d). Every checkpoint is now evaluated at
+// 5d, 21d AND the CLI horizon, each printed separately.
+const HORIZONS = [...new Set([5, 21, HORIZON])].sort((a, b) => a - b);
+const DAY_MS = 24 * 3600 * 1000;
+
+// ---- overlapping-checkpoint robustness (audit fix) ----
+// Monthly checkpoints with a 90d forward window overlap heavily, so counting
+// every checkpoint as an independent observation fakes significance. We
+// bootstrap TICKER-LEVEL means instead: resample tickers with replacement
+// 1000× (deterministic seeded PRNG, no dependencies) and report a percentile
+// 95% CI for the average alpha per action.
+const BOOTSTRAP_DRAWS = 1000;
+const BOOTSTRAP_SEED = 42;
+
 // ---- quant core (kept in lockstep with src/services/quantEngine.ts) ----
 const sma = (v, p) => (v.length < p ? undefined : v.slice(-p).reduce((a, b) => a + b, 0) / p);
 
@@ -75,6 +94,35 @@ function classifyTrend(price, s50, s200) {
     if (price < s50 && s50 < s200) return 'down';
   }
   return 'sideways';
+}
+
+/** Deterministic PRNG (mulberry32) — reproducible bootstrap, zero deps. */
+function mulberry32(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * Bootstrap 95% percentile CI for the mean of `values` (ticker-level alpha
+ * means): resample with replacement BOOTSTRAP_DRAWS times.
+ */
+function bootstrapCi(values, draws = BOOTSTRAP_DRAWS, seed = BOOTSTRAP_SEED) {
+  const n = values.length;
+  if (n < 2) return null;
+  const rand = mulberry32(seed);
+  const means = new Array(draws);
+  for (let d = 0; d < draws; d++) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += values[(rand() * n) | 0];
+    means[d] = sum / n;
+  }
+  means.sort((a, b) => a - b);
+  return { lo: means[Math.floor(draws * 0.025)], hi: means[Math.ceil(draws * 0.975) - 1] };
 }
 
 // ---- levels port (kept in lockstep with services/verdict/levels.mjs) ----
@@ -301,17 +349,21 @@ async function main() {
   const horizonMs = HORIZON * 24 * 3600 * 1000;
   const checkpointCount = Math.floor((YEARS * 365 - HORIZON) / 30.44); // monthly steps that leave room for the forward window
 
-  const buckets = { BUY: [], SELL: [], HOLD: [] };
-  const spyBuckets = { BUY: [], SELL: [], HOLD: [] };
-  // Net-of-costs (20 bps round trip) for traded signals only. SELL signals are
-  // interpreted as shorts: gross return = -fwd, then costs deducted.
-  const netBuckets = { BUY: [], SELL: [] };
-  const spyNetBuckets = { BUY: [], SELL: [] };
+  const mkBuckets = () => ({ BUY: [], SELL: [], HOLD: [] });
+  // Per-horizon accumulators: raw forward returns, SPY same-window returns,
+  // and net-of-costs variants for traded signals (BUY long / SELL short).
+  const byH = new Map();
+  for (const h of HORIZONS) byH.set(h, { action: mkBuckets(), spy: mkBuckets(), net: { BUY: [], SELL: [] }, spyNet: { BUY: [], SELL: [] } });
+  const primary = byH.get(HORIZON);
+  // Ticker-level return samples for the bootstrap: horizon -> action -> ticker -> {fwd[], spy[]}
+  const tickerStats = new Map();
+  for (const h of HORIZONS) tickerStats.set(h, { BUY: new Map(), SELL: new Map(), HOLD: new Map() });
   // Legacy (pre-fix) replication for the before/after print: the old script
   // gated facts on period end AND had a `fy = 'FY'` query bug that selected
   // zero fundamental rows, so the scorer effectively never saw fundamentals.
-  const legacyBuckets = { BUY: [], SELL: [], HOLD: [] };
-  const legacySpyBuckets = { BUY: [], SELL: [], HOLD: [] };
+  // Measured at the primary (--horizon) window.
+  const legacyBuckets = mkBuckets();
+  const legacySpyBuckets = mkBuckets();
   // Score-band calibration accumulators (target1-before-stop hit rates).
   const calib = {};
   for (const b of BAND_ORDER) calib[b] = { n: 0, hits: 0, stopped: 0, neither: 0 };
@@ -358,9 +410,6 @@ async function main() {
         const idx = candlesAll.findIndex((c) => c.t >= checkpointT);
         if (idx < 0 || idx < 210) continue; // need warmup for SMA200
         const c0 = candlesAll[idx];
-        const exitIdx = candlesAll.findIndex((c) => c.t >= c0.t + horizonMs);
-        if (exitIdx < 0) continue;
-        const c1 = candlesAll[exitIdx];
 
         const slice = candlesAll.slice(0, idx + 1);
         const fundamentals = buildFundamentalsAsOf(facts, c0.t);
@@ -370,41 +419,58 @@ async function main() {
           fundamentals.peRatio = c0.close / fundamentals.epsDiluted;
         }
         const { action, score } = scoreVerdict({ price: c0.close, candles: slice, fundamentals });
-        const fwd = ((c1.close - c0.close) / c0.close) * 100;
-        // Net of 10 bps/side (20 bps round trip). SELL = short: gross -fwd.
-        const netFwd = action === 'SELL' ? -fwd - COST_RT_PCT : fwd - COST_RT_PCT;
 
         // Legacy replication (pre-fix behavior: fundamentals never reached the
         // scorer) for the before/after comparison in the report.
         const { action: legacyAction } = scoreVerdict({ price: c0.close, candles: slice });
 
         // Calibration: same stop/target1 structure as the live trade plan, in
-        // the direction the score implies (>=0 long, <0 short).
-        const dir = score >= 0 ? 'BUY' : 'SELL';
-        const struct = structureLevels(slice, dir);
-        if (struct && Number.isFinite(struct.stop) && Number.isFinite(struct.target1)) {
-          const outcome = pathOutcome(candlesAll, idx, exitIdx, struct.stop, struct.target1, dir === 'BUY');
-          const b = calib[calibrationBand(score)];
-          b.n++;
-          if (outcome === 'hit') b.hits++;
-          else if (outcome === 'stop') b.stopped++;
-          else b.neither++;
+        // the direction the score implies (>=0 long, <0 short) — measured at
+        // the PRIMARY horizon (calibration.json feeds the live engine there).
+        const pExitIdx = candlesAll.findIndex((c) => c.t >= c0.t + horizonMs);
+        if (pExitIdx >= 0) {
+          const dir = score >= 0 ? 'BUY' : 'SELL';
+          const struct = structureLevels(slice, dir);
+          if (struct && Number.isFinite(struct.stop) && Number.isFinite(struct.target1)) {
+            const outcome = pathOutcome(candlesAll, idx, pExitIdx, struct.stop, struct.target1, dir === 'BUY');
+            const b = calib[calibrationBand(score)];
+            b.n++;
+            if (outcome === 'hit') b.hits++;
+            else if (outcome === 'stop') b.stopped++;
+            else b.neither++;
+          }
         }
 
-        // SPY forward return over the same window
-        const spy0 = spy.find((s) => s.t >= c0.t);
-        const spy1 = spy.find((s) => s.t >= c1.t);
-        if (!spy0 || !spy1) continue;
-        const spyFwd = ((spy1.c - spy0.c) / spy0.c) * 100;
-
-        buckets[action].push(fwd);
-        spyBuckets[action].push(spyFwd);
-        if (action === 'BUY' || action === 'SELL') {
-          netBuckets[action].push(netFwd);
-          spyNetBuckets[action].push(spyFwd);
+        // Per-horizon evaluation: one score per checkpoint, forward outcome
+        // measured at 5d, 21d AND the CLI horizon.
+        for (const h of HORIZONS) {
+          const exitIdx = candlesAll.findIndex((c) => c.t >= c0.t + h * DAY_MS);
+          if (exitIdx < 0) continue;
+          const c1 = candlesAll[exitIdx];
+          // SPY forward return over the same window
+          const spy0 = spy.find((s) => s.t >= c0.t);
+          const spy1 = spy.find((s) => s.t >= c1.t);
+          if (!spy0 || !spy1) continue;
+          const fwd = ((c1.close - c0.close) / c0.close) * 100;
+          const spyFwd = ((spy1.c - spy0.c) / spy0.c) * 100;
+          // Net of 10 bps/side (20 bps round trip). SELL = short: gross -fwd.
+          const netFwd = action === 'SELL' ? -fwd - COST_RT_PCT : fwd - COST_RT_PCT;
+          const B = byH.get(h);
+          B.action[action].push(fwd);
+          B.spy[action].push(spyFwd);
+          if (action === 'BUY' || action === 'SELL') {
+            B.net[action].push(netFwd);
+            B.spyNet[action].push(spyFwd);
+          }
+          let ts = tickerStats.get(h)[action].get(ticker);
+          if (!ts) { ts = { fwd: [], spy: [] }; tickerStats.get(h)[action].set(ticker, ts); }
+          ts.fwd.push(fwd);
+          ts.spy.push(spyFwd);
+          if (h === HORIZON) {
+            legacyBuckets[legacyAction].push(fwd);
+            legacySpyBuckets[legacyAction].push(spyFwd);
+          }
         }
-        legacyBuckets[legacyAction].push(fwd);
-        legacySpyBuckets[legacyAction].push(spyFwd);
         totalSignals++;
         signalsThisTicker++;
       }
@@ -416,7 +482,7 @@ async function main() {
     }
     if ((ti + 1) % progressEvery === 0) {
       const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
-      console.log(`[${ti + 1}/${tickers.length}] signals=${totalSignals} | BUY avg ${avg(buckets.BUY).toFixed(1)}% (n=${buckets.BUY.length}) | SELL avg ${avg(buckets.SELL).toFixed(1)}% (n=${buckets.SELL.length}) | SPY-BUY avg ${avg(spyBuckets.BUY).toFixed(1)}%`);
+      console.log(`[${ti + 1}/${tickers.length}] signals=${totalSignals} | BUY avg ${avg(primary.action.BUY).toFixed(1)}% (n=${primary.action.BUY.length}) | SELL avg ${avg(primary.action.SELL).toFixed(1)}% (n=${primary.action.SELL.length}) | SPY-BUY avg ${avg(primary.spy.BUY).toFixed(1)}%`);
     }
   }
 
@@ -425,22 +491,24 @@ async function main() {
   const winRate = (a) => (a.length ? (a.filter((x) => x > 0).length / a.length) * 100 : 0);
   const r2 = (v) => Number(v.toFixed(2));
 
-  // Per-action summary including net-of-costs metrics (traded signals only).
-  const actionSummary = (name) => {
+  // Per-action summary including net-of-costs metrics (traded signals only),
+  // parameterized by horizon.
+  const actionSummary = (h, name) => {
+    const B = byH.get(h);
     const raw = {
-      n: buckets[name].length,
-      avgForwardReturn: r2(avg(buckets[name])),
-      median: r2(median(buckets[name])),
-      winRate: +winRate(buckets[name]).toFixed(1),
-      spyAvgSameWindows: r2(avg(spyBuckets[name])),
+      n: B.action[name].length,
+      avgForwardReturn: r2(avg(B.action[name])),
+      median: r2(median(B.action[name])),
+      winRate: +winRate(B.action[name]).toFixed(1),
+      spyAvgSameWindows: r2(avg(B.spy[name])),
     };
     raw.avgAlpha = r2(raw.avgForwardReturn - raw.spyAvgSameWindows);
     if (name === 'BUY' || name === 'SELL') {
       raw.netOfCosts = {
         costBpsRoundTrip: COST_BPS_PER_SIDE * 2,
-        avgReturn: r2(avg(netBuckets[name])),
-        winRate: +winRate(netBuckets[name]).toFixed(1),
-        avgAlpha: r2(avg(netBuckets[name]) - avg(spyNetBuckets[name])),
+        avgReturn: r2(avg(B.net[name])),
+        winRate: +winRate(B.net[name]).toFixed(1),
+        avgAlpha: r2(avg(B.net[name]) - avg(B.spyNet[name])),
         note: name === 'SELL' ? 'short interpretation: gross = -forward return' : 'long',
       };
     }
@@ -468,16 +536,44 @@ async function main() {
     };
   }
 
+  // Per-horizon reports + bootstrap 95% CIs on ticker-level alpha means
+  // (Newey-West-style clustering: overlapping checkpoints within a ticker are
+  // absorbed by resampling the TICKER as the independent unit).
+  const bootstrapCiFor = (h, name) => {
+    const m = tickerStats.get(h)[name];
+    if (m.size < 2) return null;
+    const alphas = [...m.values()].map((s) => avg(s.fwd) - avg(s.spy));
+    const ci = bootstrapCi(alphas);
+    return {
+      tickers: m.size,
+      meanAlpha: r2(avg(alphas)),
+      ci95: ci ? [r2(ci.lo), r2(ci.hi)] : null,
+      significantAt95: ci ? ci.lo > 0 || ci.hi < 0 : false,
+    };
+  };
+  const horizonReports = {};
+  for (const h of HORIZONS) {
+    horizonReports[h] = {
+      horizonDays: h,
+      actions: { BUY: actionSummary(h, 'BUY'), HOLD: actionSummary(h, 'HOLD'), SELL: actionSummary(h, 'SELL') },
+      bootstrap95ci: { BUY: bootstrapCiFor(h, 'BUY'), HOLD: bootstrapCiFor(h, 'HOLD'), SELL: bootstrapCiFor(h, 'SELL') },
+    };
+  }
+
   const report = {
     generatedAt: new Date().toISOString(),
     config: {
-      years: YEARS, horizonDays: HORIZON, universe: tickers.length,
+      years: YEARS, horizonDays: HORIZON, horizons: HORIZONS, universe: tickers.length,
       transactionCostBpsPerSide: COST_BPS_PER_SIDE,
       fundamentalsGate: 'filed_at <= asOf (filing date); legacy NULL-filed_at rows use a conservative 45-day post-period-end approximation',
+      bootstrap: { draws: BOOTSTRAP_DRAWS, seed: BOOTSTRAP_SEED, unit: 'ticker-level alpha means (robust to overlapping checkpoints)' },
       note: 'Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound.',
     },
     totals: { signals: totalSignals, tickersTested: tickers.length - skippedNoData, tickersSkipped: skippedNoData },
-    actions: { BUY: actionSummary('BUY'), HOLD: actionSummary('HOLD'), SELL: actionSummary('SELL') },
+    // Primary (--horizon) summary, kept at top level for existing consumers.
+    actions: horizonReports[HORIZON].actions,
+    // Per-horizon evaluation + significance CIs (5d / 21d / CLI horizon).
+    horizons: horizonReports,
     // Before/after: exact legacy behavior re-scored over the same checkpoints.
     legacy: {
       note: 'Pre-fix method: period-end gating + fy=\'FY\' query bug → fundamentals never reached the scorer; no transaction costs.',
@@ -500,8 +596,20 @@ async function main() {
   fs.writeFileSync(CALIBRATION_OUT, JSON.stringify(calibrationDoc, null, 2));
 
   console.log('\n===== BACKTEST SUMMARY (corrected: filed-date gating, 20bps RT costs) =====');
-  for (const [a, s] of Object.entries(report.actions)) {
-    console.log(`${a.padEnd(5)} n=${String(s.n).padStart(4)} | avg ${s.avgForwardReturn > 0 ? '+' : ''}${s.avgForwardReturn}% in ${HORIZON}d | win ${s.winRate}% | alpha ${s.avgAlpha > 0 ? '+' : ''}${s.avgAlpha}% vs SPY${s.netOfCosts ? ` | NET ${s.netOfCosts.avgReturn > 0 ? '+' : ''}${s.netOfCosts.avgReturn}% win ${s.netOfCosts.winRate}% alpha ${s.netOfCosts.avgAlpha > 0 ? '+' : ''}${s.netOfCosts.avgAlpha}%` : ''}`);
+  for (const h of HORIZONS) {
+    console.log(`--- ${h}d horizon ---`);
+    for (const [a, s] of Object.entries(horizonReports[h].actions)) {
+      console.log(`${a.padEnd(5)} n=${String(s.n).padStart(4)} | avg ${s.avgForwardReturn > 0 ? '+' : ''}${s.avgForwardReturn}% in ${h}d | win ${s.winRate}% | alpha ${s.avgAlpha > 0 ? '+' : ''}${s.avgAlpha}% vs SPY${s.netOfCosts ? ` | NET ${s.netOfCosts.avgReturn > 0 ? '+' : ''}${s.netOfCosts.avgReturn}% win ${s.netOfCosts.winRate}% alpha ${s.netOfCosts.avgAlpha > 0 ? '+' : ''}${s.netOfCosts.avgAlpha}%` : ''}`);
+    }
+  }
+  console.log(`\n===== BOOTSTRAP 95% CI (ticker-level alpha means, ${BOOTSTRAP_DRAWS} draws, seed ${BOOTSTRAP_SEED} — overlapping-checkpoint robust) =====`);
+  for (const h of HORIZONS) {
+    for (const a of ['BUY', 'HOLD', 'SELL']) {
+      const c = horizonReports[h].bootstrap95ci[a];
+      if (!c) { console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} n/a (fewer than 2 tickers)`); continue; }
+      const [lo, hi] = c.ci95;
+      console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} mean alpha ${c.meanAlpha > 0 ? '+' : ''}${c.meanAlpha}% [${lo}%, ${hi}%] over ${c.tickers} tickers → ${c.significantAt95 ? 'SIGNIFICANT at 95%' : 'not significant at 95%'}`);
+    }
   }
   console.log('\n===== BEFORE/AFTER vs legacy method (same checkpoints) =====');
   for (const a of ['BUY', 'HOLD', 'SELL']) {

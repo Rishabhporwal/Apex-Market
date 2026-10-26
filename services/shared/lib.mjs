@@ -167,9 +167,27 @@ export class TtlCache {
     return e.value;
   }
 
-  /** Stale value even if expired — fallback when upstream fails. */
+  /**
+   * Stale value even if expired — fallback when upstream fails.
+   *
+   * Stale-horizon cap (audit fix): an entry more than 5×TTL past its last
+   * refresh is dropped (and evicted), not served — beyond that horizon the
+   * "last known-good" value is more likely wrong than helpful. Returned
+   * stale objects are marked `stale: true` so callers can tell them apart
+   * from fresh values.
+   */
   getStale(key) {
-    return this.store.get(key)?.value;
+    const e = this.store.get(key);
+    if (!e) return undefined;
+    if (Date.now() - e.storedAt > this.ttlMs * 5) {
+      this.store.delete(key); // too stale to be useful — drop, don't serve
+      return undefined;
+    }
+    if (e.value && typeof e.value === 'object') {
+      // Copy before tagging so the cached value itself is never mutated.
+      return Object.assign(Array.isArray(e.value) ? [...e.value] : { ...e.value }, { stale: true });
+    }
+    return e.value;
   }
 
   set(key, value) {

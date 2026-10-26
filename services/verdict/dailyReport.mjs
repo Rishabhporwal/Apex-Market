@@ -262,11 +262,68 @@ async function ensureUniverse(ctx, force = false) {
 }
 
 // ---- The run ----------------------------------------------------------------
-let running = false;
+// Distributed lease lock (cross-process, cross-container): a JSON lockfile in
+// the shared data volume. The in-process `running` flag only guarded one
+// process — with several verdict replicas (or a cron job beside the service)
+// two daily runs could double-write YYYY-MM-DD.json and double-spend LLM
+// tokens. The lockfile does both jobs: O_EXCL create is atomic, and the
+// expiresAt lease self-heals after a crashed run.
+const RUN_LOCK_PATH = path.join(DAILY_DIR, '.run-lock');
+const RUN_LOCK_TTL_MS = 5 * 60_000; // stale takeover after 5 minutes
+
+function readRunLock() {
+  try {
+    return JSON.parse(fs.readFileSync(RUN_LOCK_PATH, 'utf8'));
+  } catch {
+    return null; // unreadable/partial → treated as stale below
+  }
+}
+
+/** Try to create the lockfile atomically (O_EXCL via 'wx'). */
+function createRunLock(expiresAt) {
+  const body = JSON.stringify({
+    pid: process.pid,
+    host: process.env.HOSTNAME || process.env.SERVICE_HOST || 'localhost',
+    expiresAt,
+  });
+  fs.mkdirSync(DAILY_DIR, { recursive: true });
+  const fd = fs.openSync(RUN_LOCK_PATH, 'wx');
+  try {
+    fs.writeFileSync(fd, body);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * Acquire the run lease. Returns true when we own it, false when another
+ * (live) run holds it. An existing lock whose lease has expired is taken
+ * over; one retry after unlinking covers the race with a concurrent acquirer.
+ */
+function acquireRunLock() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      createRunLock(Date.now() + RUN_LOCK_TTL_MS);
+      return true;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      const lock = readRunLock();
+      if (lock && (lock.expiresAt ?? 0) > Date.now()) return false; // live holder
+      try { fs.unlinkSync(RUN_LOCK_PATH); } catch { /* someone else took it */ }
+    }
+  }
+  return false;
+}
+
+/** Release the lease — only if it is still OURS (a takeover may have replaced it). */
+function releaseRunLock() {
+  const lock = readRunLock();
+  if (lock && (lock.pid !== process.pid || (lock.host && lock.host !== (process.env.HOSTNAME || process.env.SERVICE_HOST || 'localhost')))) return;
+  try { fs.unlinkSync(RUN_LOCK_PATH); } catch { /* already gone */ }
+}
 
 export async function runDailyReport(reason = 'manual', ctx = null) {
-  if (running) return { skipped: true, reason: 'already-running' };
-  running = true;
+  if (!acquireRunLock()) return { skipped: true, reason: 'already-running' };
   const startedAt = Date.now();
   try {
     const universe = await ensureUniverse(ctx);
@@ -430,7 +487,7 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
     deliverReportWebhook(report);
     return { skipped: false, ...report };
   } finally {
-    running = false;
+    releaseRunLock();
   }
 }
 
