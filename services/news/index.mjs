@@ -12,10 +12,12 @@
  * of real fetched headlines — nothing is hard-coded or divided by magic values.
  *
  * 1. FETCH — per symbol, from every enabled source (NEWS_SOURCES env, default
- *    'yahoo,googlenews,gdelt'):
+ *    'yahoo,googlenews,gdelt,stocktwits,edgar'):
  *      - Yahoo Finance search API (yahoo-finance2, kept from the original)
  *      - Google News RSS: https://news.google.com/rss/search?q=<SYM>+stock&hl=en-US&gl=US&ceid=US:en
  *      - GDELT 2.0 doc API: https://api.gdeltproject.org/api/v2/doc/doc?query=<SYM>&mode=artlist&format=json&maxrecords=30
+ *      - StockTwits public symbol stream (§7)
+ *      - SEC EDGAR submissions-as-events (§8)
  *    Each source has an 8s timeout and fails independently (Promise.allSettled):
  *    a dead source removes only its own headlines, never the others. If every
  *    enabled source errors, the merged cache serves its last-good value
@@ -51,6 +53,36 @@
  *    plain confidence-weighted mean: identical headlines no longer count N
  *    times, stale copy fades, and wire-grade sources dominate aggregator
  *    noise. bullish/bearish/newsItems keep their original shapes.
+ *
+ * 7. SOCIAL STREAM (StockTwits) — the public per-symbol message stream
+ *    (https://api.stocktwits.com/api/2/streams/symbol/<SYM>.json; free, no
+ *    key; one call per symbol per 10min cache window; non-2xx — 404 unknown
+ *    symbol, 429 rate limit — and parse failures degrade to an empty list).
+ *    Each message becomes a headline item: body is the headline, source
+ *    'StockTwits', publishedAt from the message timestamp. Sentiment comes
+ *    from the author's own Bullish/Bearish tag when present (fixed score
+ *    ±0.6 at confidence 0.6 — a human tag carries no magnitude); untagged
+ *    messages run through the same lexicon scorer as every other headline.
+ *    SOCIAL WEIGHT CAP: the quality weight of every StockTwits item is pinned
+ *    to 0.3 regardless of the outlet rules — crowd chatter is noise at
+ *    swing/long horizons, so it can color the short-term aggregate but can
+ *    never dominate wire-grade coverage.
+ *
+ * 8. REGULATORY EVENTS (SEC EDGAR) — filings are treated as events, not news.
+ *    The symbol's CIK is resolved via the cached map at
+ *    data/filing-cache/tickers.json when present, else SEC's
+ *    company_tickers.json (fetched once, cached 24h in memory). Every SEC
+ *    request carries the mandatory User-Agent 'Research Platform
+ *    admin@researchplatform.dev' and stays inside the ≤10 req/s etiquette
+ *    (one submissions call per symbol per cache window). Filings from the
+ *    last 14 days with form 8-K, 10-Q, 10-K, SC 13D/G (incl. /A) or Form 4
+ *    each become an event item: headline
+ *    'SEC filing: <FORM> filed <DATE> — <description>' (primaryDocDescription,
+ *    else the form-type description), source 'SEC EDGAR', quality weight 1.0
+ *    (regulatory events are high-signal, so their confidence is pinned to 1.0
+ *    as well), sentiment neutral 0 unless the existing lexicon scorer scores
+ *    the description, and a filing:true flag on the newsItem. They flow
+ *    through the same dedupe / time-decay pipeline as ordinary headlines.
  */
 import { startService, loadEnvLocal, TtlCache } from '../shared/lib.mjs';
 import https from 'node:https';
@@ -68,8 +100,8 @@ const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 // so there is exactly one fetch cycle per symbol per TTL window.
 const newsCache = new TtlCache(10 * 60_000, 500, 'news'); // 10min — news cycles in minutes
 
-// ---- Source toggle: NEWS_SOURCES env (default 'yahoo,googlenews,gdelt') ----
-const NEWS_SOURCES = String(process.env.NEWS_SOURCES || 'yahoo,googlenews,gdelt')
+// ---- Source toggle: NEWS_SOURCES env (default 'yahoo,googlenews,gdelt,stocktwits,edgar') ----
+const NEWS_SOURCES = String(process.env.NEWS_SOURCES || 'yahoo,googlenews,gdelt,stocktwits,edgar')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
@@ -223,19 +255,19 @@ try {
  * the extra CA that news.google.com needs inside Docker.
  * Mirrors the httpClient response contract: {status, ok, text}, non-2xx does not throw.
  */
-function newsFetch(url, { timeoutMs = 8000, depth = 0 } = {}) {
+function newsFetch(url, { timeoutMs = 8000, depth = 0, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, {
       // Extra CA is ADDED to the bundled Mozilla roots (not a replacement), so
       // normally-chained hosts like GDELT still verify.
       ca: extraCa ? [...tls.rootCertificates, extraCa] : undefined,
-      headers: { 'user-agent': 'ResearchPlatform/1.0 (news aggregator)' },
+      headers: { 'user-agent': 'ResearchPlatform/1.0 (news aggregator)', ...headers },
       timeout: timeoutMs,
     }, (res) => {
       if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && depth < 2) {
         res.resume();
         const next = new URL(res.headers.location, url).toString();
-        resolve(newsFetch(next, { timeoutMs, depth: depth + 1 }));
+        resolve(newsFetch(next, { timeoutMs, depth: depth + 1, headers }));
         return;
       }
       const chunks = [];
@@ -329,11 +361,188 @@ async function fetchGdeltNews(symbol) {
   }).filter((a) => a.title);
 }
 
+/**
+ * (d) StockTwits public symbol stream — free, no key. Each message becomes a
+ * headline item whose quality weight is capped at 0.3 (§7). Non-2xx (404
+ * unknown symbol, 429 rate limit) and parse failures degrade to an empty list.
+ */
+const SOCIAL_QUALITY_CAP = 0.3; // §7 — social is noise at swing/long horizons
+async function fetchStockTwits(symbol) {
+  const url = `https://api.stocktwits.com/api/2/streams/symbol/${encodeURIComponent(symbol)}.json`;
+  // StockTwits fronts the API with a probabilistic Cloudflare bot challenge:
+  // a request can come back 403 "Just a moment…" while an immediate retry on
+  // the same warm connection passes (observed live). One single retry after a
+  // short backoff — anything more would hammer a rate-limited free endpoint.
+  let res = await newsFetch(url, { timeoutMs: 8000, headers: { accept: 'application/json' } });
+  if (res.status === 403) {
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await newsFetch(url, { timeoutMs: 8000, headers: { accept: 'application/json' } });
+  }
+  if (!res.ok || !res.text) return [];
+  let parsed = null;
+  try { parsed = JSON.parse(res.text); } catch { return []; }
+  const messages = Array.isArray(parsed?.messages) ? parsed.messages : [];
+  return messages.slice(0, 30).map((m) => {
+    // StockTwits bodies carry XML entities (&#39; …) — decode for display;
+    // dedupe already normalizes them, but the served headline should be clean.
+    const body = decodeEntities(String(m.body || '')).trim();
+    if (!body) return null;
+    const ts = Date.parse(m.created_at || '');
+    const tag = m.sentiment && m.sentiment.basic; // 'Bullish' | 'Bearish' | undefined
+    const item = {
+      title: body,
+      publisher: 'StockTwits',
+      link: m.id && m.user?.username ? `https://stocktwits.com/${m.user.username}/message/${m.id}` : undefined,
+      providerPublishTime: Number.isFinite(ts) ? ts : Date.now(),
+      summary: undefined,
+      sourceTag: 'stocktwits',
+      _social: true,
+      _qualityOverride: SOCIAL_QUALITY_CAP,
+    };
+    if (tag === 'Bullish' || tag === 'Bearish') {
+      // Human tag: no magnitude — fixed ±0.6 at confidence 0.6 (§7). Catalyst
+      // categorization still comes from the body so buckets stay consistent.
+      const cats = scoreArticleText(body, '');
+      item._sentimentOverride = {
+        sentiment: tag === 'Bullish' ? 'BULLISH' : 'BEARISH',
+        score: tag === 'Bullish' ? 0.6 : -0.6,
+        confidence: 0.6,
+        category: cats.category,
+        catalystSummary: cats.catalystSummary,
+      };
+    }
+    return item;
+  }).filter(Boolean);
+}
+
+/**
+ * (e) SEC EDGAR filings-as-events (§8). CIK resolution prefers the cached
+ * data/filing-cache/tickers.json map (owned by svc-research, read-only here);
+ * when that file is not present (e.g. not mounted into this container) SEC's
+ * company_tickers.json is fetched once and cached in memory for 24h. Every
+ * SEC request carries the mandatory User-Agent and stays inside the ≤10 req/s
+ * etiquette — one submissions call per symbol per 10min cache window.
+ */
+const SEC_USER_AGENT = 'Research Platform admin@researchplatform.dev';
+const EDGAR_EVENT_FORMS = new Set(['8-K', '10-Q', '10-K', 'SC 13D', 'SC 13D/A', 'SC 13G', 'SC 13G/A', '4']);
+const EDGAR_EVENT_WINDOW_MS = 14 * 24 * 3_600_000; // filings from the last 14 days
+const EDGAR_MAX_ITEMS = 15;
+const EDGAR_FORM_DESCRIPTIONS = {
+  '8-K': 'Current report',
+  '10-Q': 'Quarterly report',
+  '10-K': 'Annual report',
+  '4': 'Statement of changes in beneficial ownership (insider Form 4)',
+  'SC 13D': 'Beneficial ownership report (Schedule 13D)',
+  'SC 13G': 'Beneficial ownership report (Schedule 13G)',
+};
+function edgarFormDescription(form) {
+  const amended = form.endsWith('/A');
+  const base = amended ? form.slice(0, -2) : form;
+  return `${EDGAR_FORM_DESCRIPTIONS[base] || base}${amended ? ' (amended)' : ''}`;
+}
+
+const cachedTickerMapPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../data/filing-cache/tickers.json');
+let cachedTickerMap = null;
+try {
+  if (fs.existsSync(cachedTickerMapPath)) cachedTickerMap = JSON.parse(fs.readFileSync(cachedTickerMapPath, 'utf8'));
+} catch { cachedTickerMap = null; } // unreadable cache — fall through to SEC's map
+
+let companyTickersMap = null;
+let companyTickersAt = 0;
+const COMPANY_TICKERS_TTL = 24 * 3_600_000;
+
+async function loadCompanyTickersMap() {
+  if (companyTickersMap && Date.now() - companyTickersAt < COMPANY_TICKERS_TTL) return companyTickersMap;
+  const res = await newsFetch('https://www.sec.gov/files/company_tickers.json', {
+    timeoutMs: 15_000,
+    headers: { 'user-agent': SEC_USER_AGENT, accept: 'application/json' },
+  });
+  if (!res.ok || !res.text) throw new Error(`company_tickers.json HTTP ${res.status}`);
+  const parsed = JSON.parse(res.text);
+  // SEC's file is a top-level index map ({'0':{cik_str,ticker,title},…});
+  // tolerate a {data:[…]} wrapper in case the shape ever changes.
+  const rows = (parsed && typeof parsed === 'object' && parsed.data && typeof parsed.data === 'object')
+    ? Object.values(parsed.data)
+    : Object.values(parsed || {});
+  const map = new Map();
+  for (const row of rows) {
+    if (row && row.ticker && row.cik_str) map.set(String(row.ticker).toUpperCase(), String(row.cik_str));
+  }
+  companyTickersMap = map;
+  companyTickersAt = Date.now();
+  return map;
+}
+
+/** CIK (10-digit zero-padded) for a symbol, or null when unknown. */
+async function resolveCik(symbol) {
+  const upper = String(symbol).trim().toUpperCase();
+  if (cachedTickerMap && cachedTickerMap[upper]) return String(cachedTickerMap[upper]).padStart(10, '0');
+  try {
+    const map = await loadCompanyTickersMap();
+    return map.has(upper) ? String(map.get(upper)).padStart(10, '0') : null;
+  } catch (err) {
+    console.warn(`[svc-news] EDGAR CIK lookup failed for ${upper}:`, err?.message || err);
+    return null;
+  }
+}
+
+async function fetchEdgarFilings(symbol) {
+  const cik = await resolveCik(symbol);
+  if (!cik) return []; // unknown symbol — nothing to surface, never an error
+  const res = await newsFetch(`https://data.sec.gov/submissions/CIK${cik}.json`, {
+    timeoutMs: 10_000,
+    headers: { 'user-agent': SEC_USER_AGENT, accept: 'application/json' },
+  });
+  if (!res.ok || !res.text) return [];
+  let parsed = null;
+  try { parsed = JSON.parse(res.text); } catch { return []; }
+  const recent = parsed?.filings?.recent;
+  if (!recent || !Array.isArray(recent.form)) return [];
+  // Date-string comparison so the whole day 14 days back is inside the window.
+  const cutoffDate = new Date(Date.now() - EDGAR_EVENT_WINDOW_MS).toISOString().slice(0, 10);
+  const cikInt = String(Number(cik));
+  const items = [];
+  // recent[] is newest-first, so the first EDGAR_MAX_ITEMS hits are the freshest.
+  for (let i = 0; i < recent.form.length && items.length < EDGAR_MAX_ITEMS; i++) {
+    const form = String(recent.form[i] || '');
+    if (!EDGAR_EVENT_FORMS.has(form)) continue;
+    const filingDate = String(recent.filingDate?.[i] || '');
+    const filedTs = Date.parse(filingDate);
+    if (!Number.isFinite(filedTs) || filingDate < cutoffDate) continue;
+    const acceptedTs = Date.parse(String(recent.acceptanceDateTime?.[i] || ''));
+    const accession = String(recent.accessionNumber?.[i] || '').replace(/-/g, '');
+    const primaryDoc = String(recent.primaryDocument?.[i] || '');
+    const desc = String(recent.primaryDocDescription?.[i] || '').trim() || edgarFormDescription(form);
+    const headline = `SEC filing: ${form} filed ${filingDate} — ${desc}`;
+    // §8: sentiment neutral 0 unless the existing scorer scores the
+    // description; the event itself is high-signal, so weight 1.0 is pinned
+    // via quality AND confidence overrides regardless of lexicon hits.
+    const lex = scoreArticleText(headline, desc);
+    items.push({
+      title: headline,
+      publisher: 'SEC EDGAR',
+      link: accession && primaryDoc ? `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accession}/${primaryDoc}` : undefined,
+      providerPublishTime: Number.isFinite(acceptedTs) ? acceptedTs : filedTs,
+      summary: undefined,
+      sourceTag: 'edgar',
+      _filing: true,
+      _qualityOverride: 1.0,
+      _sentimentOverride: { ...lex, confidence: 1.0 },
+    });
+  }
+  return items;
+}
+
 const SOURCE_FETCHERS = {
   yahoo: fetchYahooNews,
   googlenews: fetchGoogleNewsRss,
   gdelt: fetchGdeltNews,
+  stocktwits: fetchStockTwits,
+  edgar: fetchEdgarFilings,
 };
+
+// Exported for unit/smoke testing of the §7/§8 mapping and weight rules.
+export { fetchStockTwits, fetchEdgarFilings };
 
 /**
  * Fetch every enabled source independently (per-source failure is isolated),
@@ -353,7 +562,16 @@ export async function buildMergedAnalysis(symbol) {
     const tag = enabled[i];
     if (r.status === 'fulfilled') {
       sourceStatus[tag] = { ok: true, count: r.value.length };
-      for (const item of r.value) raw.push({ ...item, _quality: sourceQualityWeight(item.publisher) });
+      for (const item of r.value) {
+        raw.push({
+          ...item,
+          // §7/§8: social + regulatory sources pin their own quality weight;
+          // every other source keeps the outlet-rules weight.
+          _quality: typeof item._qualityOverride === 'number'
+            ? item._qualityOverride
+            : sourceQualityWeight(item.publisher),
+        });
+      }
     } else {
       anyError = true;
       sourceStatus[tag] = { ok: false, error: String(r.reason?.message || r.reason).slice(0, 200) };
@@ -365,9 +583,12 @@ export async function buildMergedAnalysis(symbol) {
   const unique = dedupeArticles(raw);
   if (unique.length === 0 && anyError) throw new Error(`all news sources unavailable for ${symbol}`);
 
-  // Score + weight each unique headline: w = quality × timeDecay × confidence
+  // Score + weight each unique headline: w = quality × timeDecay × confidence.
+  // §7/§8: sources that carry an explicit sentiment (StockTwits author tags)
+  // or a pinned weight (SEC EDGAR events) supply _sentimentOverride instead
+  // of re-running the lexicon; everything else is scored exactly as before.
   const scored = unique.map((item) => {
-    const s = scoreArticleText(item.title, item.summary || '');
+    const s = item._sentimentOverride || scoreArticleText(item.title, item.summary || '');
     const decay = timeDecayWeight(item.providerPublishTime);
     return { ...item, _sentiment: s, _decay: decay, _weight: item._quality * decay * s.confidence };
   });
@@ -379,10 +600,13 @@ export async function buildMergedAnalysis(symbol) {
   return { articles: scored, overallScore, sourceStatus, enabledSources: enabled };
 }
 
-/** Port of sentimentService.analyzeStockSentiment — response shape unchanged. */
-async function analyzeStockSentiment(symbol) {
-  const cleanSymbol = String(symbol).trim().toUpperCase();
-  const merged = await newsCache.wrap(cleanSymbol, () => buildMergedAnalysis(cleanSymbol));
+/** The single cached fetch+analyze pass — /drivers and /sentiment share it. */
+function getAnalysis(symbol) {
+  return newsCache.wrap(symbol, () => buildMergedAnalysis(symbol));
+}
+
+/** Pure mapping from a merged analysis to the /sentiment response shape. */
+function analyzeFromMerged(cleanSymbol, merged) {
   const articles = merged.articles.map((item, idx) => {
     const s = item._sentiment;
     return {
@@ -426,6 +650,12 @@ async function analyzeStockSentiment(symbol) {
   };
 }
 
+/** Port of sentimentService.analyzeStockSentiment — response shape unchanged. */
+async function analyzeStockSentiment(symbol) {
+  const cleanSymbol = String(symbol).trim().toUpperCase();
+  return analyzeFromMerged(cleanSymbol, await getAnalysis(cleanSymbol));
+}
+
 const numToWords = (n) => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] ?? String(n);
 const trimTitle = (t, max = 90) => {
   const clean = t.trim().replace(/\s+/g, ' ');
@@ -434,22 +664,30 @@ const trimTitle = (t, max = 90) => {
 
 /** Port of newsDrivers.getNewsDrivers — never throws; degrades to empty lists.
  *  The expensive part (multi-source fetch + dedupe + scoring) is already cached
- *  10min per symbol by analyzeStockSentiment via newsCache; this mapping is
- *  cheap and deterministic, so it is intentionally NOT wrapped again — wrapping
- *  the same key in the same cache would corrupt the single-flight map. */
+ *  10min per symbol via getAnalysis (the same single wrap analyzeStockSentiment
+ *  uses — exactly one in-flight fetch per key), so this mapping is cheap and
+ *  deterministic and is intentionally NOT wrapped again. */
 async function getNewsDrivers(symbol) {
   const clean = String(symbol).trim().toUpperCase();
   try {
-    const sentiment = await analyzeStockSentiment(clean);
+    const merged = await getAnalysis(clean);
+    const sentiment = analyzeFromMerged(clean, merged);
 
-    const newsItems = (sentiment.news || []).map((a) => ({
-      title: a.title,
-      source: a.publisher,
-      url: a.link || undefined,
-      publishedAt: a.providerPublishTime,
-      sentiment: a.sentiment === 'BULLISH' ? 'bullish' : a.sentiment === 'BEARISH' ? 'bearish' : 'neutral',
-      score: a.sentimentScore,
-    }));
+    const newsItems = merged.articles.map((item) => {
+      const s = item._sentiment;
+      return {
+        title: item.title,
+        source: item.publisher || 'Financial Wire',
+        url: item.link || undefined,
+        publishedAt: item.providerPublishTime,
+        sentiment: s.sentiment === 'BULLISH' ? 'bullish' : s.sentiment === 'BEARISH' ? 'bearish' : 'neutral',
+        score: s.score,
+        // §7/§8 flags — added only on social/regulatory items; plain news
+        // items keep their original shape byte-for-byte.
+        ...(item._filing ? { filing: true } : {}),
+        ...(item._social ? { social: true } : {}),
+      };
+    });
 
     const total = newsItems.length;
     const bullishCount = newsItems.filter((n) => n.sentiment === 'bullish').length;
