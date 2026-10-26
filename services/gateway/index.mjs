@@ -146,7 +146,7 @@ function symbolQueryToPath(url, apiPrefix, basePath, { defaultSymbol = 'NVDA' } 
 // Slower downstreams (LLM, multi-service orchestration, backtests) get a
 // longer proxy timeout than plain data-plane reads.
 function proxyTimeoutFor(url) {
-  if (url.includes('/research') || url.includes('/ai-research') || url.includes('/prediction') || url.includes('/verdict') || url.includes('/narrate') || url.includes('/ensemble')) return 120_000;
+  if (url.includes('/research') || url.includes('/ai-research') || url.includes('/prediction') || url.includes('/verdict') || url.includes('/narrate') || url.includes('/ensemble') || url.includes('/filing-qa')) return 120_000;
   if (url.includes('/backtest')) return 75_000;
   if (url.includes('/financials') || url.includes('/technical') || url.includes('/sentiment')) return 40_000;
   return 25_000;
@@ -181,6 +181,11 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/llm/')) {
     serviceName = 'llm';
     downstreamPath = url.replace(/^\/api\/llm/, '');
+  } else if (url.startsWith('/api/filing-qa')) {
+    // LLM plane: grounded SEC filing Q&A (POST passthrough). Routed before
+    // /api/filings for clarity — the two share no prefix, but keep intent explicit.
+    serviceName = 'llm';
+    downstreamPath = url.replace(/^\/api/, '');
   } else if (url.startsWith('/api/financials')) {
     // research data plane: /api/financials?symbol=X&section=Y → /financials/X?section=Y
     serviceName = 'research';

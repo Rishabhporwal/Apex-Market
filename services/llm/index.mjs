@@ -147,6 +147,33 @@ async function runDeepAnalysis(data, log, customKey) {
   return generateLocalInstitutionalAnalysis(data);
 }
 
+/**
+ * Raw OpenRouter chat call shared by /filing-qa (the existing callOpenRouterModel
+ * keeps its own inline call for the narrative path). Returns the completion text,
+ * records cost, throws on failure. The key is used in the Authorization header
+ * only — never logged or echoed.
+ */
+async function callOpenRouterChat(messages, apiKey, model, log, { temperature = 0.2, maxTokens = 1500, timeoutMs = 60_000 } = {}) {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + apiKey,
+      'HTTP-Referer': process.env.HOME || 'https://researchplatform.dev',
+      'X-Title': 'Research Platform',
+    },
+    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!res.ok) throw new Error(`OpenRouter API error: ${res.status} ${res.statusText}`);
+  const json = await res.json();
+  const text = json.choices?.[0]?.message?.content || '';
+  recordCost(model, json.usage?.prompt_tokens, json.usage?.completion_tokens);
+  log.info({ msg: `openrouter call ok`, model });
+  return { text, modelUsed: json.model || model };
+}
+
 // ---- Multi-model ensemble: parallel run across models, majority vote on verdict ----
 const ENSEMBLE_MODELS = (process.env.ENSEMBLE_MODELS || 'deepseek/deepseek-v3.2,z-ai/glm-5.3-flash,qwen/qwen3-32b')
   .split(',').map((m) => m.trim()).filter(Boolean);
@@ -324,6 +351,102 @@ app.post('/research', async (req, reply) => {
     // Local engine cannot throw, but guard anyway (graceful deterministic fallback).
     return generateLocalInstitutionalAnalysis(data);
   }
+});
+
+/**
+ * POST /filing-qa — retrieval-augmented Q&A over SEC filings.
+ * Body: {symbol, question, form? ('10-K' default | '10-Q')}.
+ *
+ * 1. Resolves svc-research via registry/SERVICES_JSON and GETs
+ *    /filing-context/:symbol?q=...&form=... (90s timeout — the first fetch of a
+ *    10-K downloads and parses a multi-MB document, 20-60s).
+ * 2. Research's honest errors (no filing / no relevant sections) are passed
+ *    through with the same status code.
+ * 3. Builds a GROUNDED prompt: the question plus the 6 numbered excerpts
+ *    verbatim (trimmed to ~3000 chars each), with strict instructions to answer
+ *    only from the excerpts and cite every claim as [n].
+ * 4. Calls OpenRouter with the primary model; returns answer + sources +
+ *    filing metadata. Without an OPENROUTER_API_KEY, returns the excerpts
+ *    deterministically so the feature works keyless.
+ */
+app.post('/filing-qa', async (req, reply) => {
+  const b = req.body || {};
+  const symbol = String(b.symbol || '').trim().toUpperCase();
+  const question = String(b.question || '').trim();
+  const form = String(b.form || '10-K').trim().toUpperCase();
+  if (!symbol || !question) return reply.status(400).send({ error: 'symbol and question are required' });
+  const log = req.log ?? app.log;
+
+  // 1. Retrieve grounded excerpts from svc-research.
+  let ctx;
+  try {
+    const base = await resolveService('research');
+    const url = `${base}/filing-context/${encodeURIComponent(symbol)}?q=${encodeURIComponent(question)}&form=${encodeURIComponent(form)}`;
+    const res = await httpClient.fetch(url, { ctx: req.traceCtx, span: 'llm.research.filing-context', timeoutMs: 90_000 });
+    if (!res.ok || res.json?.error) {
+      // Pass research's 404-style errors through honestly, same status code.
+      return reply.status(res.status).send({
+        error: res.json?.error || `filing-context request failed (status ${res.status})`,
+      });
+    }
+    ctx = res.json;
+  } catch (err) {
+    log.warn({ requestId: req.traceCtx?.requestId, traceId: req.traceCtx?.traceId, msg: `research filing-context unavailable: ${err.message}` });
+    return reply.status(502).send({ error: `filing context unavailable: ${err.message}` });
+  }
+
+  // 3. Grounded prompt: excerpts verbatim (trimmed), strict grounding rules.
+  const excerpts = ctx.chunks
+    .map((c) => `Excerpt [${c.n}]${c.section ? ` (${c.section})` : ''}:\n${c.text.length > 3000 ? c.text.slice(0, 3000) + '\u2026' : c.text}`)
+    .join('\n\n');
+
+  const system = 'You are an institutional financial analyst answering questions about a company\'s SEC filings. '
+    + 'Answer ONLY from the excerpts provided. Cite every claim with [n] matching the excerpt number. '
+    + 'If the excerpts do not contain the answer, say exactly that — do not use outside knowledge.';
+  const user = `Question: ${question}\n\n`
+    + `The following are excerpts from ${symbol}'s Form ${ctx.form}, filed ${ctx.filedAt}:\n\n`
+    + `${excerpts}\n\n`
+    + 'Answer ONLY from the excerpts below. Cite every claim with [n] matching the excerpt number. '
+    + 'If the excerpts do not contain the answer, say exactly that — do not use outside knowledge.';
+
+  // 4. OpenRouter (primary model from env), or deterministic keyless fallback.
+  let answer;
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (apiKey) {
+    try {
+      const model = process.env.OPENROUTER_MODEL || DEFAULT_MODEL;
+      const out = await callOpenRouterChat(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        apiKey,
+        model,
+        log,
+        { temperature: 0.2, maxTokens: 1200, timeoutMs: 100_000 },
+      );
+      answer = out.text;
+    } catch (err) {
+      log.warn({ requestId: req.traceCtx?.requestId, msg: `OpenRouter filing-qa call failed: ${err.message}` });
+      return reply.status(502).send({ error: `LLM call failed: ${err.message}` });
+    }
+  } else {
+    // 5. Deterministic keyless fallback — feature works without keys.
+    answer = 'LLM key not configured — showing the matching filing excerpts:';
+  }
+
+  return {
+    symbol: ctx.symbol,
+    question: ctx.question,
+    answer,
+    sources: ctx.chunks.map((c) => ({
+      n: c.n,
+      section: c.section,
+      url: ctx.filingUrl,
+      excerpt: c.text.slice(0, 200),
+    })),
+    filing: { form: ctx.form, filedAt: ctx.filedAt, url: ctx.filingUrl },
+  };
 });
 
 app.get('/stats', async () => {

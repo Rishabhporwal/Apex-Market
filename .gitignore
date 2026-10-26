@@ -7,3 +7,6 @@ data/*.log
 
 # services runtime state
 services/.run/
+
+# immutable SEC filing text cache written by svc-research
+data/filing-cache/

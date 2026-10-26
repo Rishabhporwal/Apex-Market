@@ -12,6 +12,7 @@ import { DiscoverView } from '@/components/discover/DiscoverView';
 import { BacktestView } from '@/components/backtesting/BacktestView';
 import { PortfolioView } from '@/components/portfolio/PortfolioView';
 import { WatchlistView } from '@/components/watchlist/WatchlistView';
+import { FilingQA } from '@/components/research/FilingQA';
 import { AiCopilotModal } from '@/components/research/AiCopilotModal';
 import { StockQuote } from '@/types';
 
@@ -103,7 +104,12 @@ export default function Home() {
         )}
 
         {activeTab === 'filings' && (
-          <FilingsPanel symbol={selectedSymbol} />
+          <>
+            <FilingsPanel symbol={selectedSymbol} />
+            <div className="mt-6">
+              <FilingQA symbol={selectedSymbol} />
+            </div>
+          </>
         )}
 
         {activeTab === 'screener' && (

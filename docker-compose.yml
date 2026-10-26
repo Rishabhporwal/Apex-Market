@@ -107,6 +107,12 @@ services:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: research } }
     container_name: apex-research
+    volumes:
+      # Read-WRITE: research is the ONLY service that writes filing-cache
+      # (extracted SEC filing text + ticker map, immutable, no TTL). Everything
+      # else touching ./data stays read-only — the DuckDB single-writer rule
+      # is unaffected (research never opens any .duckdb file).
+      - ./data:/app/data
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0
