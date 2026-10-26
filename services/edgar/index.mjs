@@ -89,16 +89,10 @@ function num(v) {
 }
 
 // ---- Screener (port of edgarService.getScreenerResults) -------------------
-async function getScreenerResults(filters) {
-  const conn = await getConnection();
-  if (!conn) return { warehouseReady: false, results: [] };
-  const ready = await isWarehouseReady();
-  if (!ready) return { warehouseReady: false, results: [] };
-
-  const limit = Math.max(1, Math.min(filters.limit ?? 50, 1000));
-  const search = filters.searchQuery?.trim();
-
-  const sql = `
+// Shared revenue-growth CTE (latest vs prior fiscal-year revenue per CIK) —
+// used by BOTH the screener and /sector-stats so the growth basis never drifts.
+function revenueCteSql() {
+  return `
     WITH rev AS (
       SELECT cik, "end" AS period_end, MAX(val) AS val
       FROM facts
@@ -122,6 +116,19 @@ async function getScreenerResults(filters) {
       FROM ranked
       GROUP BY cik
     )
+  `;
+}
+
+async function getScreenerResults(filters) {
+  const conn = await getConnection();
+  if (!conn) return { warehouseReady: false, results: [] };
+  const ready = await isWarehouseReady();
+  if (!ready) return { warehouseReady: false, results: [] };
+
+  const limit = Math.max(1, Math.min(filters.limit ?? 50, 1000));
+  const search = filters.searchQuery?.trim();
+
+  const sql = `${revenueCteSql()}
     SELECT
       c.cik, c.ticker, c.name, c.sector_label,
       m.revenue, m.net_income, m.eps_diluted, m.total_assets, m.total_debt,
@@ -261,6 +268,85 @@ async function getCompanyFundamentals(ticker) {
   };
 }
 
+// ---- Sector stats (P1-2 audit fix) -----------------------------------------
+// Per-sector medians + sorted distributions of the four fundamentals factors
+// (revenueGrowthYoY, netMargin, roe, peRatio) computed from the warehouse with
+// the SAME formulas as the screener, cached in memory for 24h. svc-verdict uses
+// the distributions to rank a company's fundamentals as a percentile WITHIN its
+// sector instead of scoring against absolute thresholds.
+const SECTOR_STATS_TTL_MS = 24 * 60 * 60 * 1000;
+let sectorStatsCache = null; // { at, computedAt, sectors, bySector }
+
+function median(sorted) {
+  if (!sorted.length) return null;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+async function getSectorStats() {
+  if (sectorStatsCache && Date.now() - sectorStatsCache.at < SECTOR_STATS_TTL_MS) {
+    return { ...sectorStatsCache, cached: true };
+  }
+  const conn = await getConnection();
+  if (!conn) return { warehouseReady: false };
+  if (!(await isWarehouseReady())) return { warehouseReady: false };
+
+  const sql = `${revenueCteSql()}
+    SELECT c.ticker, c.sector_label, m.revenue, m.net_income, m.eps_diluted,
+           m.stockholders_equity, p.rev_prior
+    FROM companies c
+    JOIN metrics_latest m ON m.cik = c.cik
+    LEFT JOIN prior p ON p.cik = c.cik
+  `;
+  let rows;
+  try {
+    const reader = await conn.runAndReadAll(sql, [...REVENUE_TAGS]);
+    rows = reader.getRowObjectsJson();
+  } catch (err) {
+    console.error('[svc-edgar] sector-stats query failed:', err);
+    return { warehouseReady: true };
+  }
+
+  const priceMap = loadPriceMap();
+  const bySector = new Map(); // sector -> { growth[], margin[], roe[], pe[], n }
+  for (const row of rows) {
+    const revenue = num(row.revenue);
+    const netIncome = num(row.net_income);
+    const eps = num(row.eps_diluted);
+    const equity = num(row.stockholders_equity);
+    const revPrior = num(row.rev_prior);
+    const priceEntry = priceMap[String(row.ticker || '').toUpperCase()];
+    const price = priceEntry?.price;
+    const hasPrice = typeof price === 'number' && Number.isFinite(price) && price > 0;
+
+    // Same formulas as the screener rows — single source of truth for basis.
+    const growth = revenue && revPrior && revPrior > 0 ? ((revenue - revPrior) / revPrior) * 100 : null;
+    const margin = revenue && netIncome !== null ? (netIncome / revenue) * 100 : null;
+    const roe = equity && equity > 0 && netIncome !== null ? (netIncome / equity) * 100 : null;
+    const pe = hasPrice && eps && eps > 0 ? price / eps : (priceEntry?.peRatio ?? null);
+
+    const sector = row.sector_label ?? 'Unknown';
+    let bucket = bySector.get(sector);
+    if (!bucket) {
+      bucket = { growth: [], margin: [], roe: [], pe: [], n: 0 };
+      bySector.set(sector, bucket);
+    }
+    bucket.n++;
+    if (growth !== null) bucket.growth.push(growth);
+    if (margin !== null) bucket.margin.push(margin);
+    if (roe !== null) bucket.roe.push(roe);
+    if (pe !== null && pe > 0) bucket.pe.push(pe);
+  }
+
+  const sectors = {};
+  for (const [sector, b] of bySector) {
+    for (const k of ['growth', 'margin', 'roe', 'pe']) b[k].sort((a, z) => a - z);
+    sectors[sector] = { growth: median(b.growth), margin: median(b.margin), roe: median(b.roe), pe: median(b.pe), n: b.n };
+  }
+  sectorStatsCache = { at: Date.now(), computedAt: Date.now(), sectors, bySector };
+  return { ...sectorStatsCache, cached: false };
+}
+
 // ---- HTTP surface ----
 const { app, listen, close } = await startService({
   name: 'svc-edgar',
@@ -269,6 +355,25 @@ const { app, listen, close } = await startService({
     const ready = await isWarehouseReady();
     return { ok: true, warehouseReady: ready, priceMapEntries: Object.keys(loadPriceMap()).length };
   },
+});
+
+app.get('/sector-stats', async (req) => {
+  const out = await getSectorStats();
+  if (out.warehouseReady === false) return { warehouseReady: false, sectors: {} };
+  const base = { warehouseReady: true, cached: out.cached, computedAt: new Date(out.computedAt).toISOString(), sectors: out.sectors };
+  const sector = req.query?.sector;
+  if (!sector) return base;
+  // Case-insensitive sector lookup; distributions enable percentile ranking.
+  const key = Object.keys(out.sectors).find((s) => s.toLowerCase() === String(sector).trim().toLowerCase());
+  if (!key) return { ...base, sector, known: false, stats: null, distributions: null };
+  const b = out.bySector.get(key);
+  return {
+    ...base,
+    sector: key,
+    known: true,
+    stats: base.sectors[key],
+    distributions: { growth: b.growth, margin: b.margin, roe: b.roe, pe: b.pe },
+  };
 });
 
 /** ScreenerFilter query params (src/types/index.ts) → typed filters. */

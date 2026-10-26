@@ -8,13 +8,18 @@
  *
  * The API key is read from the environment only; it is never logged or echoed.
  */
-import { startService, loadEnvLocal, httpClient } from '../shared/lib.mjs';
+import { startService, loadEnvLocal, httpClient, logger } from '../shared/lib.mjs';
 import { resolveService } from '../shared/discovery.mjs';
 import { getTechnicalSummary } from '../shared/technical.mjs';
 
 loadEnvLocal();
 
 const DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
+
+// Fastify runs with logger:false → req.log/app.log are NO-OP null loggers, so
+// route-level warn/info (ensemble failures, OpenRouter errors) were silently
+// swallowed. Route handlers log through this real service logger instead.
+const svcLog = logger('svc-llm');
 
 /** Per-model cost counters: calls, tokens in/out, rough $ estimate. */
 const costCounters = new Map(); // model -> {calls, promptTokens, completionTokens, estimatedCostUsd}
@@ -43,8 +48,21 @@ function recordCost(model, promptTokens, completionTokens) {
   costCounters.set(model, m);
 }
 
-/** Same prompt builder as llmService.buildPrompt. */
+/** Same prompt builder as llmService.buildPrompt, extended with the quant
+ *  breakdown receipts (P1-1: the narrative is generated FROM the numbers) and
+ *  the caller's grounding instruction. */
 function buildPrompt(data) {
+  const bd = data.quantBreakdown || null;
+  const pts = (v) => (typeof v === 'number' ? `${v > 0 ? '+' : ''}${v}` : 'n/a');
+  const breakdownBlock = bd ? `
+Quant Model Breakdown (deterministic score receipts — authoritative, treat as ground truth):
+- Composite score: ${pts(bd.score)}/100
+- Trend component: ${pts(bd.trend?.points)} pts — ${bd.trend?.detail}
+- RSI(14) component: ${pts(bd.rsi?.points)} pts — ${bd.rsi?.detail}
+- News sentiment component: ${pts(bd.sentiment?.points)} pts — ${bd.sentiment?.detail}
+- Fundamentals component: ${pts(bd.fundamentals?.points)} of ±${bd.fundamentals?.max} pts — ${bd.fundamentals?.detail}
+${(bd.fundamentals?.factors || []).map((f) => `  · ${f.name}: ${f.value} → ${pts(f.points)} pts`).join('\n')}${bd.bearishVotes ? `\n- Bearish confirmations: ${bd.bearishVotes.count} — ${bd.bearishVotes.reasons.join('; ')}` : ''}` : '';
+
   const base = `Analyze ${data.symbol} (${data.companyName}) as an institutional senior financial research analyst.
 Current Price: $${data.currentPrice}
 Technical Summary: RSI: ${data.technicalSummary?.rsi14}, Trend: ${data.technicalSummary?.trendShortTerm}/${data.technicalSummary?.trendLongTerm}, Signal: ${data.technicalSummary?.overallSignal}
@@ -52,11 +70,11 @@ News Sentiment Score: ${data.sentimentScore}/100
 Recent News Headlines:
 ${(data.newsHeadlines || []).slice(0, 5).map((h) => `- ${h}`).join('\n')}
 Financial Metrics: P/E: ${data.keyFinancials?.trailingPE}, Forward P/E: ${data.keyFinancials?.forwardPE}, Profit Margin: ${data.keyFinancials?.profitMargin}, FCF: $${data.keyFinancials?.freeCashflow}
-
+${breakdownBlock}
 Provide a concise, 3-paragraph executive institutional research report:
 1. Fundamental Valuation & Earnings Quality
 2. Technical Chart Structure & Key Inflection Levels
-3. Final Verdict (Buy / Sell / Neutral) with precise rationale and price targets.`;
+3. Final Verdict (Buy / Sell / Neutral) with precise rationale and price targets.${data.grounding ? `\n\nIMPORTANT: ${data.grounding}.` : ''}`;
   // /research passes an optional user query through (mirrors the ai-research route
   // handing `userQuery` to runDeepAnalysis); /narrate never sets it.
   return data.userQuery ? `${base}\n\nAdditional analyst request: ${data.userQuery}` : base;
@@ -234,9 +252,11 @@ app.post('/narrate', async (req, reply) => {
     sentimentScore: Number(b.sentimentScore) || 0,
     newsHeadlines: Array.isArray(b.newsHeadlines) ? b.newsHeadlines : [],
     keyFinancials: b.keyFinancials || {},
+    quantBreakdown: b.quantBreakdown || null,
+    grounding: typeof b.grounding === 'string' ? b.grounding : '',
   };
   try {
-    const out = await runDeepAnalysis(data, req.log ?? app.log);
+    const out = await runDeepAnalysis(data, svcLog);
     return out;
   } catch (err) {
     // Local engine cannot throw, but guard anyway.
@@ -259,8 +279,10 @@ app.post('/ensemble', async (req, reply) => {
     sentimentScore: Number(b.sentimentScore) || 0,
     newsHeadlines: Array.isArray(b.newsHeadlines) ? b.newsHeadlines : [],
     keyFinancials: b.keyFinancials || {},
+    quantBreakdown: b.quantBreakdown || null,
+    grounding: typeof b.grounding === 'string' ? b.grounding : '',
   };
-  const log = req.log ?? app.log;
+  const log = svcLog;
 
   if (!apiKey) {
     // No key: single deterministic local vote
@@ -323,7 +345,7 @@ function estimateTokens(vote, kind = 'in') {
 app.post('/research', async (req, reply) => {
   const b = req.body || {};
   const symbol = String(b.symbol || 'NVDA').trim().toUpperCase();
-  const log = req.log ?? app.log;
+  const log = svcLog;
 
   // Gather context concurrently from sibling services (graceful degradation)
   const [quote, candles, sentiment, keyFin] = await Promise.all([
@@ -414,7 +436,7 @@ app.post('/filing-qa', async (req, reply) => {
   const question = String(b.question || '').trim();
   const form = String(b.form || '10-K').trim().toUpperCase();
   if (!symbol || !question) return reply.status(400).send({ error: 'symbol and question are required' });
-  const log = req.log ?? app.log;
+  const log = svcLog;
 
   // 1. Retrieve grounded excerpts from svc-research.
   let ctx;

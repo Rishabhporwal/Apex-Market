@@ -158,9 +158,38 @@ export function classifyTrend(price, sma50, sma200) {
   return 'sideways';
 }
 
+// ---- Sector-relative fundamentals (P1-2 audit fix) ---------------------------
+// Midpoint percentile rank of x within a sorted array of sector peers:
+// (values strictly below + half of the tied ones) / n * 100 → 0..100.
+// Requires at least 5 peers — a smaller sample is too noisy to rank against,
+// so the caller falls back to absolute thresholds. Mirrored in quantEngine.ts.
+export function percentileRank(sortedValues, x) {
+  if (!Array.isArray(sortedValues) || sortedValues.length < 5) return undefined;
+  if (typeof x !== 'number' || !Number.isFinite(x)) return undefined;
+  let below = 0;
+  let equal = 0;
+  for (const v of sortedValues) {
+    if (v < x) below++;
+    else if (v === x) equal++;
+  }
+  return Math.round(((below + 0.5 * equal) / sortedValues.length) * 100);
+}
+
+/** Percentile → points tiers (identical in quantEngine.ts — keep in lockstep). */
+function pointsFromPercentile(factor, pctile) {
+  switch (factor) {
+    case 'growth': return pctile >= 75 ? 12 : pctile >= 50 ? 6 : pctile >= 25 ? -6 : -12;
+    case 'margin': return pctile >= 75 ? 9 : pctile >= 50 ? 5 : pctile >= 25 ? 0 : -9;
+    case 'roe': return pctile >= 75 ? 8 : pctile >= 50 ? 4 : pctile >= 25 ? 0 : -8;
+    case 'pe': return pctile <= 25 ? 6 : pctile <= 75 ? 0 : -6; // inverted: cheap vs sector is good
+    default: return 0;
+  }
+}
+
 // ---- The core scoring function (mirrors aiVerdictService exactly) ----
 export function scoreVerdict(input) {
-  const { price, candles, fundamentals, sentimentScore = 0 } = input;
+  const { price, candles, fundamentals, sentimentScore = 0, sectorPercentiles } = input;
+  const pct = sectorPercentiles || {};
 
   const closes = candles.map((c) => c.close);
   const s50 = sma(closes, 50);
@@ -189,34 +218,40 @@ export function scoreVerdict(input) {
   // News sentiment ±25 (clamped)
   const sentPts = Math.max(-25, Math.min(25, sentimentScore / 4));
   score += sentPts;
-  // Fundamentals ±35 (clamped)
+  // Fundamentals ±35 (clamped). Each factor scores on the company's percentile
+  // WITHIN its sector when a sector percentile is provided (sector-relative
+  // basis); otherwise the original absolute thresholds apply.
   let fundamentalsUsed = false;
   let fundPts = 0;
   const fundFactors = [];
   if (fundamentals) {
     if (fundamentals.revenueGrowthYoY !== undefined) {
       const g = fundamentals.revenueGrowthYoY;
-      const p = g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12;
+      const sectorRelative = pct.growth !== undefined;
+      const p = sectorRelative ? pointsFromPercentile('growth', pct.growth) : (g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12);
       fundPts += p;
-      fundFactors.push({ name: 'Revenue growth (YoY)', value: `${g.toFixed(1)}%`, points: p });
+      fundFactors.push({ name: 'Revenue growth (YoY)', value: sectorRelative ? `${g.toFixed(1)}% (sector pctile ${pct.growth}/100)` : `${g.toFixed(1)}%`, points: p });
     }
     if (fundamentals.netMargin !== undefined) {
       const m = fundamentals.netMargin;
-      const p = m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9;
+      const sectorRelative = pct.margin !== undefined;
+      const p = sectorRelative ? pointsFromPercentile('margin', pct.margin) : (m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9);
       fundPts += p;
-      fundFactors.push({ name: 'Net margin', value: `${m.toFixed(1)}%`, points: p });
+      fundFactors.push({ name: 'Net margin', value: sectorRelative ? `${m.toFixed(1)}% (sector pctile ${pct.margin}/100)` : `${m.toFixed(1)}%`, points: p });
     }
     if (fundamentals.roe !== undefined) {
       const r = fundamentals.roe;
-      const p = r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8;
+      const sectorRelative = pct.roe !== undefined;
+      const p = sectorRelative ? pointsFromPercentile('roe', pct.roe) : (r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8);
       fundPts += p;
-      fundFactors.push({ name: 'Return on equity', value: `${r.toFixed(1)}%`, points: p });
+      fundFactors.push({ name: 'Return on equity', value: sectorRelative ? `${r.toFixed(1)}% (sector pctile ${pct.roe}/100)` : `${r.toFixed(1)}%`, points: p });
     }
     if (fundamentals.peRatio !== undefined) {
       const pe = fundamentals.peRatio;
-      const p = pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6;
+      const sectorRelative = pct.pe !== undefined;
+      const p = sectorRelative ? pointsFromPercentile('pe', pct.pe) : (pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6);
       fundPts += p;
-      fundFactors.push({ name: 'P/E ratio', value: pe.toFixed(1), points: p });
+      fundFactors.push({ name: 'P/E ratio', value: sectorRelative ? `${pe.toFixed(1)} (sector pctile ${pct.pe}/100)` : pe.toFixed(1), points: p });
     }
     fundamentalsUsed = true;
     fundPts = Math.max(-35, Math.min(35, fundPts));
@@ -264,7 +299,12 @@ export function scoreVerdict(input) {
       max: 35,
       used: fundamentalsUsed,
       factors: fundFactors,
-      detail: fundamentalsUsed ? `${fundFactors.length} quality factors from SEC filings` : 'no EDGAR fundamentals available for this symbol',
+      ...(fundamentalsUsed ? { basis: pct.growth !== undefined || pct.margin !== undefined || pct.roe !== undefined || pct.pe !== undefined ? 'sector' : 'absolute' } : {}),
+      detail: !fundamentalsUsed
+        ? 'no EDGAR fundamentals available for this symbol'
+        : (pct.growth !== undefined || pct.margin !== undefined || pct.roe !== undefined || pct.pe !== undefined)
+        ? `${fundFactors.length} quality factors from SEC filings, scored relative to sector peers${pct.sector ? ` (${pct.sector})` : ''}`
+        : `${fundFactors.length} quality factors from SEC filings`,
     },
     ...(bearishVotes ? { bearishVotes } : {}),
   };

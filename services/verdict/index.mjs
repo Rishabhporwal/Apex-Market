@@ -7,8 +7,8 @@
  * levels mirror src/services/levelsService.ts; response shape is the AiVerdict
  * from src/types/verdict.ts so the existing UI keeps working.
  */
-import { startService, loadEnvLocal, traceCtx, httpClient } from '../shared/lib.mjs';
-import { scoreVerdict } from './quantEngine.mjs';
+import { startService, loadEnvLocal, traceCtx, httpClient, logger } from '../shared/lib.mjs';
+import { scoreVerdict, percentileRank } from './quantEngine.mjs';
 import { computeLevels, getStopLossAndTargets } from './levels.mjs';
 import { initDailyReport, runDailyReport, getDailyReport, scheduleDailyReport, catchUpDailyReport } from './dailyReport.mjs';
 import fs from 'node:fs';
@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.2'; // Wilder RSI + calibrated confidence + target geometry
+const VERDICT_ENGINE_VERSION = '2026-10-27.3'; // Grounded ensemble prompt + sector-relative fundamentals
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
@@ -166,7 +166,32 @@ async function generateVerdict(symbol, ctx, opts = {}) {
         peRatio: edgarFundamentals.peRatio,
       }
     : undefined;
-  const quant = scoreVerdict({ price, candles, sentimentScore: news.sentimentScore, fundamentals: fundSrc });
+
+  // ---- Sector-relative fundamentals (P1-2 audit fix) -----------------------
+  // When EDGAR reports a real sector, rank the company's fundamentals as
+  // percentiles WITHIN its sector (svc-edgar /sector-stats — server-cached
+  // 24h) instead of scoring against absolute thresholds. Any failure here
+  // (unknown sector, warehouse unavailable, timeout) degrades gracefully to
+  // the absolute thresholds — the sectorPercentiles input simply stays absent.
+  const sector = edgarFundamentals?.sector || null;
+  let sectorPercentiles;
+  if (sector && sector !== 'Unknown') {
+    try {
+      const stats = await callPeer('edgar', `/sector-stats?sector=${encodeURIComponent(sector)}&distribution=1`, { ctx, timeoutMs: 8000 });
+      const dist = stats?.distributions;
+      const company = { growth: edgarFundamentals?.revenueGrowthYoY, margin: edgarFundamentals?.netMargin, roe: edgarFundamentals?.roe, pe: edgarFundamentals?.peRatio };
+      const pcts = {};
+      for (const [k, v] of Object.entries(company)) {
+        const r = percentileRank(dist?.[k], v);
+        if (r !== undefined) pcts[k] = r;
+      }
+      if (Object.keys(pcts).length) sectorPercentiles = { ...pcts, sector };
+    } catch (err) {
+      appLog.warn({ requestId: ctx?.requestId, traceId: ctx?.traceId, msg: `sector stats unavailable for ${clean} (${sector}): ${err.message}` });
+    }
+  }
+
+  const quant = scoreVerdict({ price, candles, sentimentScore: news.sentimentScore, fundamentals: fundSrc, sectorPercentiles });
   const { score, confidence, calibrated: confidenceCalibrated } = quant;
   let action = quant.action;
   const trend = quant.trend;
@@ -180,6 +205,10 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       roe: edgarFundamentals.roe,
       peRatio: edgarFundamentals.peRatio,
       source: edgarFundamentals.source,
+      // Sector-relative scoring receipts (P1-2): which sector the factors were
+      // ranked against and the percentile basis actually used.
+      sector,
+      ...(sectorPercentiles ? { sectorPercentiles } : {}),
     };
   } else {
     // Yahoo-quote fallback fundamentals (price-derived), mirrors fromYahooFinancials minimally.
@@ -236,7 +265,11 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   let ensemble = null;
   let llmUsage = null;
   let researchFromCache = false;
-  if (depth === 'full' && process.env.OPENROUTER_API_KEY) {
+  // Key ownership: OPENROUTER_API_KEY lives in svc-llm only (compose env_file).
+  // Verdict always delegates the ensemble to svc-llm in full depth; svc-llm
+  // falls back to its deterministic local engine when keyless (consensus null
+  // → no tone → no soft vote), so verdict never needs the key itself.
+  if (depth === 'full') {
     // Single-flight + 24h research cache. Two concurrent verdicts for the same
     // symbol must not both run the (expensive) ensemble: the FIRST caller
     // registers a promise; later callers await it and share its outcome.
@@ -276,6 +309,10 @@ async function generateVerdict(symbol, ctx, opts = {}) {
               sentimentScore: news.sentimentScore,
               newsHeadlines: news.newsItems.map((n) => n.title),
               keyFinancials: { trailingPE: fundamentals?.peRatio },
+              // P1-1 (ground the narrative): the deterministic score receipts so
+              // every model writes from the same numbers the UI shows.
+              quantBreakdown: quant.breakdown,
+              grounding: 'every number you state must come from the provided data; do not invent figures',
             },
             timeoutMs: 90_000,
           });
@@ -306,6 +343,7 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   }
 
   // Soft LLM vote: adjust action only when quant score sits within ±15 of a boundary
+  const quantAction = action;
   if (llmTone) {
     const boundaries = [-35, -15, 15, 35];
     const nearBoundary = boundaries.some((b) => Math.abs(score - b) <= 15);
@@ -315,6 +353,22 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       else if (llmTone === 'BULLISH' && action === 'SELL' && score >= -35) action = 'HOLD';
       else if (llmTone === 'BEARISH' && action === 'BUY' && score <= 35) action = 'HOLD';
     }
+  }
+  // P1-1 (audit the soft-vote): every nudge that actually flips the action is
+  // logged as a first-class trace event — quant said one thing, the LLM
+  // ensemble tone moved it.
+  if (llmTone && action !== quantAction) {
+    appLog.info({
+      requestId: ctx?.requestId,
+      traceId: ctx?.traceId,
+      span: 'verdict.softvote',
+      symbol: clean,
+      quantAction,
+      llmTone,
+      score,
+      finalAction: action,
+      msg: `soft-vote nudge: quant ${quantAction} → ${action} (llmTone ${llmTone}, score ${score})`,
+    });
   }
 
   // ---- Levels & strategy --------------------------------------------------
@@ -520,7 +574,10 @@ const started = await startService({
   },
 });
 const { app, listen, close } = started;
-appLog = app.log;
+// Fastify runs with logger:false, so app.log is a NO-OP null logger — routing
+// service logs through it swallowed every appLog.* line (request-completion
+// logs come from lib.mjs's own pino logger). Use a real service logger.
+appLog = logger('svc-verdict');
 
 // ---- Daily Top-15 research run ---------------------------------------------
 initDailyReport({ resolveService, httpClient, log: appLog, appLog, generateVerdict });

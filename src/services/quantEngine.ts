@@ -33,6 +33,20 @@ export interface QuantFundamentals {
   peRatio?: number;
 }
 
+/**
+ * Sector-relative percentile inputs (0-100) for the fundamentals factors,
+ * computed by the caller from svc-edgar /sector-stats distributions.
+ * Any absent factor falls back to the absolute thresholds for that factor.
+ */
+export interface SectorPercentiles {
+  growth?: number;
+  margin?: number;
+  roe?: number;
+  pe?: number;
+  /** Sector label, for receipts/display only — never used in the math. */
+  sector?: string;
+}
+
 export interface ScoreComponent {
   points: number;
   detail: string;
@@ -222,6 +236,34 @@ export function classifyTrend(price: number, sma50?: number, sma200?: number): T
   return 'sideways';
 }
 
+// ---- Sector-relative fundamentals (P1-2 audit fix) ---------------------------
+// EXACT mirror of services/verdict/quantEngine.mjs `Sector-relative
+// fundamentals` section — keep both in lockstep (min sample, midpoint rule,
+// percentile → points tiers).
+/** Midpoint percentile rank of x within a sorted array of sector peers (0-100). Requires >= 5 peers. */
+export function percentileRank(sortedValues: number[], x: number): number | undefined {
+  if (!Array.isArray(sortedValues) || sortedValues.length < 5) return undefined;
+  if (typeof x !== 'number' || !Number.isFinite(x)) return undefined;
+  let below = 0;
+  let equal = 0;
+  for (const v of sortedValues) {
+    if (v < x) below++;
+    else if (v === x) equal++;
+  }
+  return Math.round(((below + 0.5 * equal) / sortedValues.length) * 100);
+}
+
+/** Percentile → points tiers (identical in quantEngine.mjs — keep in lockstep). */
+function pointsFromPercentile(factor: 'growth' | 'margin' | 'roe' | 'pe', pctile: number): number {
+  switch (factor) {
+    case 'growth': return pctile >= 75 ? 12 : pctile >= 50 ? 6 : pctile >= 25 ? -6 : -12;
+    case 'margin': return pctile >= 75 ? 9 : pctile >= 50 ? 5 : pctile >= 25 ? 0 : -9;
+    case 'roe': return pctile >= 75 ? 8 : pctile >= 50 ? 4 : pctile >= 25 ? 0 : -8;
+    case 'pe': return pctile <= 25 ? 6 : pctile <= 75 ? 0 : -6; // inverted: cheap vs sector is good
+    default: return 0;
+  }
+}
+
 // ---- The core scoring function (mirrors aiVerdictService exactly) ----
 
 export function scoreVerdict(input: {
@@ -230,8 +272,11 @@ export function scoreVerdict(input: {
   fundamentals?: QuantFundamentals;
   /** News sentiment score (-100..100). Backtests pass 0 (no honest history). */
   sentimentScore?: number;
+  /** Optional sector-relative percentile ranks (0-100) per fundamentals factor. */
+  sectorPercentiles?: SectorPercentiles;
 }): QuantScoreResult {
-  const { price, candles, fundamentals, sentimentScore = 0 } = input;
+  const { price, candles, fundamentals, sentimentScore = 0, sectorPercentiles } = input;
+  const pct = sectorPercentiles || {};
 
   const closes = candles.map((c) => c.close);
   const s50 = sma(closes, 50);
@@ -261,34 +306,40 @@ export function scoreVerdict(input: {
   // News sentiment ±25 (clamped)
   const sentPts = Math.max(-25, Math.min(25, sentimentScore / 4));
   score += sentPts;
-  // Fundamentals ±35 (clamped)
+  // Fundamentals ±35 (clamped). Each factor scores on the company's percentile
+  // WITHIN its sector when a sector percentile is provided (sector-relative
+  // basis); otherwise the original absolute thresholds apply.
   let fundamentalsUsed = false;
   let fundPts = 0;
   const fundFactors: { name: string; value: string; points: number }[] = [];
   if (fundamentals) {
     if (fundamentals.revenueGrowthYoY !== undefined) {
       const g = fundamentals.revenueGrowthYoY;
-      const p = g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12;
+      const pg = pct.growth;
+      const p = pg !== undefined ? pointsFromPercentile('growth', pg) : (g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12);
       fundPts += p;
-      fundFactors.push({ name: 'Revenue growth (YoY)', value: `${g.toFixed(1)}%`, points: p });
+      fundFactors.push({ name: 'Revenue growth (YoY)', value: pg !== undefined ? `${g.toFixed(1)}% (sector pctile ${pg}/100)` : `${g.toFixed(1)}%`, points: p });
     }
     if (fundamentals.netMargin !== undefined) {
       const m = fundamentals.netMargin;
-      const p = m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9;
+      const pm = pct.margin;
+      const p = pm !== undefined ? pointsFromPercentile('margin', pm) : (m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9);
       fundPts += p;
-      fundFactors.push({ name: 'Net margin', value: `${m.toFixed(1)}%`, points: p });
+      fundFactors.push({ name: 'Net margin', value: pm !== undefined ? `${m.toFixed(1)}% (sector pctile ${pm}/100)` : `${m.toFixed(1)}%`, points: p });
     }
     if (fundamentals.roe !== undefined) {
       const r = fundamentals.roe;
-      const p = r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8;
+      const pr = pct.roe;
+      const p = pr !== undefined ? pointsFromPercentile('roe', pr) : (r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8);
       fundPts += p;
-      fundFactors.push({ name: 'Return on equity', value: `${r.toFixed(1)}%`, points: p });
+      fundFactors.push({ name: 'Return on equity', value: pr !== undefined ? `${r.toFixed(1)}% (sector pctile ${pr}/100)` : `${r.toFixed(1)}%`, points: p });
     }
     if (fundamentals.peRatio !== undefined) {
       const pe = fundamentals.peRatio;
-      const p = pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6;
+      const pp = pct.pe;
+      const p = pp !== undefined ? pointsFromPercentile('pe', pp) : (pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6);
       fundPts += p;
-      fundFactors.push({ name: 'P/E ratio', value: pe.toFixed(1), points: p });
+      fundFactors.push({ name: 'P/E ratio', value: pp !== undefined ? `${pe.toFixed(1)} (sector pctile ${pp}/100)` : pe.toFixed(1), points: p });
     }
     fundamentalsUsed = true;
     fundPts = Math.max(-35, Math.min(35, fundPts));
@@ -335,7 +386,12 @@ export function scoreVerdict(input: {
       max: 35,
       used: fundamentalsUsed,
       factors: fundFactors,
-      detail: fundamentalsUsed ? `${fundFactors.length} quality factors from SEC filings` : 'no EDGAR fundamentals available for this symbol',
+      ...(fundamentalsUsed ? { basis: pct.growth !== undefined || pct.margin !== undefined || pct.roe !== undefined || pct.pe !== undefined ? 'sector' : 'absolute' } : {}),
+      detail: !fundamentalsUsed
+        ? 'no EDGAR fundamentals available for this symbol'
+        : (pct.growth !== undefined || pct.margin !== undefined || pct.roe !== undefined || pct.pe !== undefined)
+        ? `${fundFactors.length} quality factors from SEC filings, scored relative to sector peers${pct.sector ? ` (${pct.sector})` : ''}`
+        : `${fundFactors.length} quality factors from SEC filings`,
     },
     ...(bearishVotes ? { bearishVotes } : {}),
   };

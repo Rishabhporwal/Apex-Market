@@ -1,18 +1,78 @@
 #!/usr/bin/env node
 /**
- * svc-news (port 8004) — news drivers + sentiment scoring per ADR-001.
+ * svc-news (port 8004) — multi-source news aggregation + sentiment scoring per ADR-001.
  * Re-implements the minimal path of src/services/newsDrivers.ts +
  * src/services/sentimentService.ts (those are TS with project imports, so the
- * service carries a plain-JS port): fetch news via yahoo-finance2 search,
- * keyword-lexicon sentiment scoring identical to the original, 10min TTL cache.
+ * service carries a plain-JS port) and extends it with multi-source aggregation.
+ *
+ * ============================================================================
+ * SENTIMENT METHODOLOGY (answers the "sentiment/4 is numerology" audit finding)
+ * ============================================================================
+ * Every number that leaves this service is a documented, reproducible function
+ * of real fetched headlines — nothing is hard-coded or divided by magic values.
+ *
+ * 1. FETCH — per symbol, from every enabled source (NEWS_SOURCES env, default
+ *    'yahoo,googlenews,gdelt'):
+ *      - Yahoo Finance search API (yahoo-finance2, kept from the original)
+ *      - Google News RSS: https://news.google.com/rss/search?q=<SYM>+stock&hl=en-US&gl=US&ceid=US:en
+ *      - GDELT 2.0 doc API: https://api.gdeltproject.org/api/v2/doc/doc?query=<SYM>&mode=artlist&format=json&maxrecords=30
+ *    Each source has an 8s timeout and fails independently (Promise.allSettled):
+ *    a dead source removes only its own headlines, never the others. If every
+ *    enabled source errors, the merged cache serves its last-good value
+ *    (stale-on-error) and, with no history at all, the service degrades to
+ *    empty lists — fabricated sample feeds are NOT counted as news.
+ *
+ * 2. DEDUPE — syndicated copies of the same story across outlets are collapsed:
+ *      normalizeHeadline() lowercases, strips XML entities, outlet suffixes
+ *      (" - Reuters" style tails), punctuation and whitespace; two headlines
+ *      are duplicates when the normalized strings are equal OR their first 60
+ *      normalized characters match. The surviving copy is the one from the
+ *      highest-quality source (ties broken by recency), so a Reuters wire copy
+ *      outranks an aggregator's repost of the same story.
+ *
+ * 3. SOURCE-QUALITY WEIGHT q:
+ *      1.0 — major wires: Reuters, Bloomberg, AP, Dow Jones, WSJ, FT, CNBC
+ *      0.7 — named financial outlets: MarketWatch, Barron's, Investings,
+ *            SeekingAlpha, Yahoo
+ *      0.4 — everything else (blogs, aggregators, regional press)
+ *
+ * 4. TIME-DECAY d = 0.5^(ageHours/24): a headline from 24h ago weighs half of
+ *    one from this hour; a 3-day-old headline weighs ~1/8. Stale coverage
+ *    cannot prop up a score that fresh coverage contradicts.
+ *
+ * 5. PER-HEADLINE SCORE — the original keyword-lexicon scorer (bullish minus
+ *    bearish weighted keywords, normalized by sqrt(hitCount), clamped to
+ *    [-1, 1]) runs unchanged on every unique headline, and also yields a
+ *    confidence c = min(0.95, 0.45 + 0.12 * hitCount) that shrinks the weight
+ *    of low-signal headlines.
+ *
+ * 6. AGGREGATE — sentimentScore = 100 * Σ(s_i × w_i) / Σ(w_i), clamped to
+ *    [-100, 100], where w_i = q_i × d_i × c_i. This replaces the old
+ *    plain confidence-weighted mean: identical headlines no longer count N
+ *    times, stale copy fades, and wire-grade sources dominate aggregator
+ *    noise. bullish/bearish/newsItems keep their original shapes.
  */
 import { startService, loadEnvLocal, TtlCache } from '../shared/lib.mjs';
+import https from 'node:https';
+import tls from 'node:tls';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 loadEnvLocal();
 const { default: YahooFinance } = await import('yahoo-finance2');
 const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
 
+// newsCache caches the MERGED per-symbol analysis (all sources → dedupe →
+// score → aggregate) for 10min; both /drivers and /sentiment read through it,
+// so there is exactly one fetch cycle per symbol per TTL window.
 const newsCache = new TtlCache(10 * 60_000, 500, 'news'); // 10min — news cycles in minutes
+
+// ---- Source toggle: NEWS_SOURCES env (default 'yahoo,googlenews,gdelt') ----
+const NEWS_SOURCES = String(process.env.NEWS_SOURCES || 'yahoo,googlenews,gdelt')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 
 // ---- Financial keyword lexicon with weighted polarity (from sentimentService.ts) ----
 const bullishKeywords = [
@@ -71,37 +131,262 @@ function scoreArticleText(title, summary = '') {
   return { sentiment, score: Number(clampedScore.toFixed(2)), confidence: Number(confidence.toFixed(2)), category, catalystSummary };
 }
 
-async function fetchNews(symbol) {
-  try {
-    const searchRes = await yf.search(symbol, { newsCount: 12 });
-    if (searchRes.news && searchRes.news.length > 0) {
-      return searchRes.news.map((n) => ({
-        title: n.title,
-        publisher: n.publisher,
-        link: n.link,
-        providerPublishTime: n.providerPublishTime ? new Date(n.providerPublishTime).getTime() : Date.now(),
-        summary: n.description || undefined,
-      }));
-    }
-  } catch (err) {
-    console.warn(`Could not fetch live news for ${symbol}, providing verified market feeds:`, err?.message || err);
-  }
-  // High-quality verified sample news feed fallback (same as sentimentService.ts)
-  return [
-    { title: `${symbol} Exceeds Wall Street Cloud and AI Infrastructure Growth Forecasts`, publisher: 'Bloomberg Markets', link: 'https://finance.yahoo.com', providerPublishTime: Date.now() - 3600000 * 2 },
-    { title: `Institutional Inflows Surge for ${symbol} as Analysts Reiterate Buy Ratings`, publisher: 'Reuters', link: 'https://finance.yahoo.com', providerPublishTime: Date.now() - 3600000 * 5 },
-    { title: `Macro Interest Rate Decisions May Present Short-Term Volatility for Tech Equities`, publisher: 'Wall Street Journal', link: 'https://finance.yahoo.com', providerPublishTime: Date.now() - 3600000 * 12 },
-    { title: `${symbol} Management Announces Multi-Billion Share Repurchase Authorization`, publisher: 'CNBC', link: 'https://finance.yahoo.com', providerPublishTime: Date.now() - 3600000 * 24 },
-    { title: `Supply Chain Optimization and Gross Margin Expansion Fuel ${symbol} Upside`, publisher: 'Morgan Stanley Research', link: 'https://finance.yahoo.com', providerPublishTime: Date.now() - 3600000 * 36 },
-  ];
+// ---- Source-quality weights (see methodology block above) ----
+const MAJOR_WIRES = ['reuters', 'bloomberg', 'associated press', 'apnews', 'ap.org', 'dow jones', 'wsj', 'wall street journal', 'financial times', 'cnbc'];
+const NAMED_OUTLETS = ['marketwatch', 'barron', 'investings', 'seekingalpha', 'seeking alpha', 'yahoo'];
+
+/** q in {1.0, 0.7, 0.4} per methodology section 3. */
+export function sourceQualityWeight(publisher) {
+  const name = String(publisher || '').toLowerCase().replace(/^www\./, '');
+  if (MAJOR_WIRES.some((k) => name.includes(k))) return 1.0;
+  if (NAMED_OUTLETS.some((k) => name.includes(k))) return 0.7;
+  // Short tokens ('ap', 'ft') only match as standalone words, never inside 'apple'/'shift'.
+  if (/(^|[\s./])ap([\s./]|$)/.test(name) || /(^|[\s./])ft([\s./]|$)/.test(name)) return 1.0;
+  return 0.4;
 }
 
-/** Port of sentimentService.analyzeStockSentiment. */
+/** d = 0.5^(ageHours/24) per methodology section 4. */
+export function timeDecayWeight(publishTimeMs) {
+  const ageHours = Math.max(0, (Date.now() - (publishTimeMs || Date.now())) / 3_600_000);
+  return Math.pow(0.5, ageHours / 24);
+}
+
+// ---- Headline normalization + dedupe (methodology section 2) ----
+const OUTLET_SUFFIX_TOKENS = [...MAJOR_WIRES, ...NAMED_OUTLETS, 'cnbc', 'bbc', 'cnn', 'nytimes', 'new york times', 'wsj.com', 'bloomberg.com', 'benzinga', 'investing.com', 'barrons', 'fool', 'motley fool', 'zacks', 'tipranks', 'insider', 'business insider', 'financial post', 'the globe and mail', 'techcrunch', 'streetinsider', 'barchart', 'medium', 'substack', 'tradingview', 'simply wall st', 'quartr', 'stocktwits'];
+
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/"/g, '"').replace(/'/g, "'").replace(/</g, '<')
+    .replace(/>/g, '>').replace(/&nbsp;/g, ' ').replace(/&/g, '&');
+}
+
+/** Lowercase, strip outlet suffix tails, punctuation and extra whitespace. */
+export function normalizeHeadline(title) {
+  let t = decodeEntities(String(title || '')).toLowerCase().trim();
+  // Google News appends " - Outlet": drop the tail when it names a known outlet.
+  const tailMatch = t.match(/\s+[-–—|·]\s+([^-–—|·]+)$/);
+  if (tailMatch) {
+    const tail = tailMatch[1].trim();
+    if (OUTLET_SUFFIX_TOKENS.some((k) => tail.includes(k))) t = t.slice(0, tailMatch.index).trim();
+  }
+  return t.replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Collapse syndicated copies: duplicate when normalized headlines are equal OR
+ * their first 60 normalized chars match. The kept copy is the one from the
+ * highest-quality source (ties broken by most recent publish time).
+ */
+export function dedupeArticles(items) {
+  const ranked = [...items].sort((a, b) =>
+    (b._quality - a._quality) || ((b.providerPublishTime || 0) - (a.providerPublishTime || 0)));
+  const byKey = new Map(); // first-60 key -> kept item
+  const seenFull = new Set();
+  for (const it of ranked) {
+    const norm = normalizeHeadline(it.title);
+    if (!norm || norm.length < 8) continue;
+    if (seenFull.has(norm)) { it._dupeOf = norm; continue; }
+    const key = norm.slice(0, 60);
+    const kept = byKey.get(key);
+    if (kept) {
+      kept._dupes = (kept._dupes || 0) + 1;
+      if (!kept._syndicatedBy) kept._syndicatedBy = [];
+      kept._syndicatedBy.push(it.publisher);
+      continue;
+    }
+    seenFull.add(norm);
+    byKey.set(key, it);
+  }
+  return [...byKey.values()];
+}
+
+// ---- TLS note ----
+// The Docker VM does not trust the host's TLS-interception CA (the local
+// Cloudflare Gateway decrypts news.google.com; the CA lives in the host
+// keychain, not in the node:24 image), so plain fetch() fails there with
+// "self-signed certificate in certificate chain". newsFetch() trusts the
+// gateway CA explicitly — loaded from gateway-ca.pem next to this file
+// (override: NEWS_EXTRA_CA_FILE) — only when present; verification is never
+// disabled. Yahoo keeps yahoo-finance2 and GDELT chains normally, so they are
+// unaffected either way.
+let extraCa = null;
+try {
+  const caPath = process.env.NEWS_EXTRA_CA_FILE || path.join(path.dirname(fileURLToPath(import.meta.url)), 'gateway-ca.pem');
+  if (fs.existsSync(caPath)) extraCa = fs.readFileSync(caPath, 'utf8');
+} catch { /* no extra CA — standard verification only */ }
+
+/**
+ * Single-attempt GET with an absolute timeout and simple 3xx follow.
+ * Used for the two raw-HTTP sources: httpClient's 2-retry policy is
+ * counterproductive here (GDELT rate-limits to 1 req/5s and answers slowly,
+ * so retries only burn the gateway's 25s proxy budget) and it cannot carry
+ * the extra CA that news.google.com needs inside Docker.
+ * Mirrors the httpClient response contract: {status, ok, text}, non-2xx does not throw.
+ */
+function newsFetch(url, { timeoutMs = 8000, depth = 0 } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, {
+      // Extra CA is ADDED to the bundled Mozilla roots (not a replacement), so
+      // normally-chained hosts like GDELT still verify.
+      ca: extraCa ? [...tls.rootCertificates, extraCa] : undefined,
+      headers: { 'user-agent': 'ResearchPlatform/1.0 (news aggregator)' },
+      timeout: timeoutMs,
+    }, (res) => {
+      if ([301, 302, 307, 308].includes(res.statusCode) && res.headers.location && depth < 2) {
+        res.resume();
+        const next = new URL(res.headers.location, url).toString();
+        resolve(newsFetch(next, { timeoutMs, depth: depth + 1 }));
+        return;
+      }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, text });
+      });
+    });
+    const timer = setTimeout(() => req.destroy(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);
+    req.on('close', () => clearTimeout(timer));
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
+  });
+}
+
+// ---- Source fetchers — each returns [{title, publisher, link, providerPublishTime, summary, sourceTag}] ----
+
+/** (a) Yahoo Finance news via yahoo-finance2 search (original source, kept). */
+async function fetchYahooNews(symbol) {
+  const searchRes = await yf.search(symbol, { newsCount: 12 });
+  return (searchRes.news || []).map((n) => ({
+    title: n.title,
+    publisher: n.publisher || 'Yahoo Finance',
+    link: n.link,
+    providerPublishTime: n.providerPublishTime ? new Date(n.providerPublishTime).getTime() : Date.now(),
+    summary: n.description || undefined,
+    sourceTag: 'yahoo',
+  }));
+}
+
+/** (b) Google News RSS — parsed with regex, no new deps. */
+async function fetchGoogleNewsRss(symbol) {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(`${symbol} stock`)}&hl=en-US&gl=US&ceid=US:en`;
+  const res = await newsFetch(url, { timeoutMs: 8000 });
+  if (!res.ok || !res.text) return [];
+  const items = [];
+  const itemRe = /<item>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = itemRe.exec(res.text)) !== null && items.length < 20) {
+    const block = m[1];
+    const pick = (tag) => {
+      const tm = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+      return tm ? decodeEntities(tm[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim() : '';
+    };
+    const title = pick('title');
+    if (!title) continue;
+    const sourceName = (() => {
+      const sm = block.match(/<source[^>]*>([\s\S]*?)<\/source>/i);
+      return sm ? decodeEntities(sm[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')).trim() : '';
+    })();
+    const pubDate = pick('pubDate');
+    const ts = pubDate ? Date.parse(pubDate) : NaN;
+    // Strip the " - Outlet" suffix Google News appends when the source tag names it.
+    const cleanTitle = sourceName && title.toLowerCase().endsWith(` - ${sourceName.toLowerCase()}`)
+      ? title.slice(0, title.length - sourceName.length - 3) : title;
+    items.push({
+      title: cleanTitle,
+      publisher: sourceName || 'Google News',
+      link: pick('link') || undefined,
+      providerPublishTime: Number.isFinite(ts) ? ts : Date.now(),
+      summary: undefined,
+      sourceTag: 'googlenews',
+    });
+  }
+  return items;
+}
+
+/** (c) GDELT 2.0 doc API — free, no key. Publisher = article domain. */
+async function fetchGdeltNews(symbol) {
+  const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(symbol)}&mode=artlist&format=json&maxrecords=30`;
+  // GDELT's measured response floor is ~12s and it rate-limits to 1 req/5s,
+  // so one 15s attempt (still inside the gateway's 25s proxy budget when run
+  // in parallel with the other sources); a 429 counts as an empty result.
+  const res = await newsFetch(url, { timeoutMs: 15_000 });
+  if (!res.ok || !res.text) return [];
+  let parsed = null;
+  try { parsed = JSON.parse(res.text); } catch { return []; }
+  const articles = Array.isArray(parsed?.articles) ? parsed.articles : [];
+  return articles.map((a) => {
+    // GDELT seendate format: 20261027T120000Z
+    const sm = String(a.seendate || '').match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+    const ts = sm ? Date.parse(`${sm[1]}-${sm[2]}-${sm[3]}T${sm[4]}:${sm[5]}:${sm[6]}Z`) : NaN;
+    return {
+      title: a.title || '',
+      publisher: a.domain || 'GDELT',
+      link: a.url || undefined,
+      providerPublishTime: Number.isFinite(ts) ? ts : Date.now(),
+      summary: undefined,
+      sourceTag: 'gdelt',
+    };
+  }).filter((a) => a.title);
+}
+
+const SOURCE_FETCHERS = {
+  yahoo: fetchYahooNews,
+  googlenews: fetchGoogleNewsRss,
+  gdelt: fetchGdeltNews,
+};
+
+/**
+ * Fetch every enabled source independently (per-source failure is isolated),
+ * dedupe across sources, score each unique headline and aggregate.
+ * Throws only when ALL enabled sources errored (lets TtlCache serve stale).
+ */
+export async function buildMergedAnalysis(symbol) {
+  const enabled = NEWS_SOURCES.filter((s) => typeof SOURCE_FETCHERS[s] === 'function');
+  const unknown = NEWS_SOURCES.filter((s) => typeof SOURCE_FETCHERS[s] !== 'function');
+  if (unknown.length) console.warn(`[svc-news] unknown sources in NEWS_SOURCES ignored: ${unknown.join(', ')}`);
+
+  const settled = await Promise.allSettled(enabled.map((tag) => SOURCE_FETCHERS[tag](symbol)));
+  const raw = [];
+  const sourceStatus = {};
+  let anyError = false;
+  settled.forEach((r, i) => {
+    const tag = enabled[i];
+    if (r.status === 'fulfilled') {
+      sourceStatus[tag] = { ok: true, count: r.value.length };
+      for (const item of r.value) raw.push({ ...item, _quality: sourceQualityWeight(item.publisher) });
+    } else {
+      anyError = true;
+      sourceStatus[tag] = { ok: false, error: String(r.reason?.message || r.reason).slice(0, 200) };
+      console.warn(`[svc-news] source '${tag}' failed for ${symbol}:`, r.reason?.message || r.reason);
+    }
+  });
+  if (enabled.length === 0) { anyError = true; console.warn('[svc-news] no valid sources enabled in NEWS_SOURCES'); }
+
+  const unique = dedupeArticles(raw);
+  if (unique.length === 0 && anyError) throw new Error(`all news sources unavailable for ${symbol}`);
+
+  // Score + weight each unique headline: w = quality × timeDecay × confidence
+  const scored = unique.map((item) => {
+    const s = scoreArticleText(item.title, item.summary || '');
+    const decay = timeDecayWeight(item.providerPublishTime);
+    return { ...item, _sentiment: s, _decay: decay, _weight: item._quality * decay * s.confidence };
+  });
+
+  const totalWeight = scored.reduce((acc, a) => acc + a._weight, 0);
+  const weightedSum = scored.reduce((acc, a) => acc + a._sentiment.score * a._weight, 0);
+  const overallScore = Math.max(-100, Math.min(100, totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 100) : 0));
+
+  return { articles: scored, overallScore, sourceStatus, enabledSources: enabled };
+}
+
+/** Port of sentimentService.analyzeStockSentiment — response shape unchanged. */
 async function analyzeStockSentiment(symbol) {
   const cleanSymbol = String(symbol).trim().toUpperCase();
-  const rawNews = await fetchNews(cleanSymbol);
-  const articles = rawNews.map((item, idx) => {
-    const s = scoreArticleText(item.title, item.summary || '');
+  const merged = await newsCache.wrap(cleanSymbol, () => buildMergedAnalysis(cleanSymbol));
+  const articles = merged.articles.map((item, idx) => {
+    const s = item._sentiment;
     return {
       id: `news-${cleanSymbol}-${idx}-${Date.now()}`,
       title: item.title,
@@ -123,9 +408,7 @@ async function analyzeStockSentiment(symbol) {
   const bearishCount = articles.filter((a) => a.sentiment === 'BEARISH').length;
   const neutralCount = articles.filter((a) => a.sentiment === 'NEUTRAL').length;
 
-  const weightedScoreSum = articles.reduce((acc, a) => acc + a.sentimentScore * a.confidence, 0);
-  const totalWeight = articles.reduce((acc, a) => acc + a.confidence, 0) || 1;
-  const overallScore = Math.round((weightedScoreSum / totalWeight) * 100);
+  const overallScore = merged.overallScore ?? 0;
 
   let sentimentLabel = 'NEUTRAL';
   if (overallScore >= 45) sentimentLabel = 'STRONGLY_BULLISH';
@@ -151,22 +434,21 @@ const trimTitle = (t, max = 90) => {
   return clean.length > max ? clean.slice(0, max - 1) + '…' : clean;
 };
 
-/** Port of newsDrivers.getNewsDrivers — never throws; degrades to empty lists. */
+/** Port of newsDrivers.getNewsDrivers — never throws; degrades to empty lists.
+ *  The expensive part (multi-source fetch + dedupe + scoring) is already cached
+ *  10min per symbol by analyzeStockSentiment via newsCache; this mapping is
+ *  cheap and deterministic, so it is intentionally NOT wrapped again — wrapping
+ *  the same key in the same cache would corrupt the single-flight map. */
 async function getNewsDrivers(symbol) {
   const clean = String(symbol).trim().toUpperCase();
-  return newsCache.wrap(clean, async () => {
-    let sentiment;
-    try {
-      sentiment = await analyzeStockSentiment(clean);
-    } catch (err) {
-      console.warn(`[svc-news] sentiment unavailable for ${clean}:`, err?.message || err);
-      return { newsItems: [], bullish: [], bearish: [], sentimentScore: 0 };
-    }
+  try {
+    const sentiment = await analyzeStockSentiment(clean);
 
     const newsItems = (sentiment.news || []).map((a) => ({
       title: a.title,
       source: a.publisher,
       url: a.link || undefined,
+      publishedAt: a.providerPublishTime,
       sentiment: a.sentiment === 'BULLISH' ? 'bullish' : a.sentiment === 'BEARISH' ? 'bearish' : 'neutral',
       score: a.sentimentScore,
     }));
@@ -201,14 +483,17 @@ async function getNewsDrivers(symbol) {
     }
 
     return { newsItems, bullish, bearish, sentimentScore: score };
-  });
+  } catch (err) {
+    console.warn(`[svc-news] sentiment unavailable for ${clean}:`, err?.message || err);
+    return { newsItems: [], bullish: [], bearish: [], sentimentScore: 0 };
+  }
 }
 
 // ---- HTTP surface ----
 const { app, listen, close } = await startService({
   name: 'svc-news',
   port: Number(process.env.PORT || 8004),
-  healthDeps: async () => ({ ok: true, newsCache: newsCache.size }),
+  healthDeps: async () => ({ ok: true, newsCache: newsCache.size, sources: NEWS_SOURCES.join(',') }),
 });
 
 app.get('/drivers/:symbol', async (req, reply) => {
