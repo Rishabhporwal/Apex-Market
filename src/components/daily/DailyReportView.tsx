@@ -6,6 +6,7 @@ import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle,
 interface DailyRow {
   symbol: string;
   name: string;
+  tier?: 'core' | 'fresh';
   action?: string;
   confidence?: number;
   score?: number;
@@ -221,6 +222,11 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                     <span className="text-xs text-slate-500 truncate max-w-[200px]">{r.name}</span>
                     {r.action && <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${ACTION_STYLES[r.action] || ACTION_STYLES.NEUTRAL}`}>{r.action}</span>}
                     {r.confidence != null && <span className="text-[11px] text-slate-500">{r.confidence}% confidence</span>}
+                    {r.tier === 'fresh' && (
+                      <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-cyan-500/15 text-cyan-300" title="New candidate — analyzed today for the first time in 7+ days">
+                        <Sparkles className="h-3 w-3" /> new today
+                      </span>
+                    )}
                     {r.score != null && <span className="text-[11px] text-slate-600">score {r.score}</span>}
                     {r.earnings?.daysUntil != null && r.earnings.daysUntil >= -1 && r.earnings.daysUntil <= 21 && (
                       <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-amber-500/15 text-amber-400">
@@ -256,36 +262,6 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
           {failed.length > 0 && (
             <div className="text-[11px] text-slate-600 flex items-center gap-2 px-1">
               <AlertTriangle className="h-3.5 w-3.5" /> {failed.length} symbol(s) failed this run: {failed.map((f) => f.symbol).join(', ')}
-            </div>
-          )}
-          {(report.fresh || []).length > 0 && (
-            <div className="mt-4 pt-4 border-t border-slate-800/60">
-              <h3 className="font-bold text-white flex items-center gap-2 mb-2 text-sm">
-                <Sparkles className="h-4 w-4 text-cyan-400" /> Fresh candidates today
-                <span className="text-[10px] font-normal text-slate-500">— new quality names analyzed for the first time in 7+ days</span>
-              </h3>
-              <div className="space-y-2">
-                {(report.fresh || []).filter((r) => !r.error).map((r) => (
-                  <button
-                    key={r.symbol}
-                    onClick={() => r.action && onSelectSymbol(r.symbol)}
-                    className="w-full text-left glass-panel rounded-xl p-3 hover:border-cyan-500/40 transition group"
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Sparkles className="h-3 w-3 text-cyan-400" />
-                      <span className="font-bold text-white text-sm">{r.symbol}</span>
-                      <span className="text-xs text-slate-500 truncate max-w-[180px]">{r.name}</span>
-                      {r.action && <span className={'px-2 py-0.5 rounded-full border text-[10px] font-bold ' + (ACTION_STYLES[r.action] || ACTION_STYLES.NEUTRAL)}>{r.action}</span>}
-                      {r.confidence != null && <span className="text-[11px] text-slate-500">{r.confidence}%</span>}
-                      {r.price != null && <span className="text-[11px] text-slate-400">${r.price.toFixed(2)}</span>}
-                      {r.llm && r.llm.promptTokens + r.llm.completionTokens > 0 && (
-                        <span className="text-[10px] text-slate-600">{((r.llm.promptTokens + r.llm.completionTokens) / 1000).toFixed(1)}k tok · ${r.llm.costUsd.toFixed(4)}</span>
-                      )}
-                    </div>
-                    {r.reason && <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">{r.reason}</p>}
-                  </button>
-                ))}
-              </div>
             </div>
           )}
           {report.llmUsage && (

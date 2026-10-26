@@ -331,9 +331,19 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
       appLog.warn({ span: 'verdict.daily', msg: `fresh-candidate selection failed: ${err.message}` });
     }
 
+    // ---- One unified list: best 5 of the day across core + fresh ----------
+    // Both pools compete on the same score; fresh names can displace core
+    // names. The weekly universe remains the candidate GENERATOR (stability
+    // for discovery economics), but the list the user reads is merit-ordered.
+    // Held positions are protected by pins, not by list membership.
     const succeeded = results.filter((r) => !r.error);
-    succeeded.sort((a, b) => (b.score ?? b.confidence) - (a.score ?? a.confidence));
-    const ordered = [...succeeded, ...results.filter((r) => r.error)];
+    const freshOk = freshResults.filter((r) => !r.error);
+    const freshSymbols = new Set(freshOk.map((r) => r.symbol));
+    const pool = [
+      ...succeeded.map((r) => ({ ...r, tier: 'core' })),
+      ...freshOk.map((r) => ({ ...r, tier: 'fresh' })),
+    ].sort((a, b) => (b.score ?? b.confidence) - (a.score ?? a.confidence));
+    const ordered = pool.slice(0, UNIVERSE_SIZE);
 
     const runUsage = [...results, ...freshResults].reduce(
       (a, r) => ({
@@ -352,7 +362,10 @@ export async function runDailyReport(reason = 'manual', ctx = null) {
       durationMs: Date.now() - startedAt,
       universeWeek: universe.weekTag,
       universeBuiltAt: universe.builtAt,
-      count: succeeded.length,
+      count: ordered.length,
+      // Names analyzed but cut from today's displayed 5 (audit trail; their
+      // research caches are warm so clicking them in Watchlist costs nothing).
+      analyzed: { core: results.length, fresh: freshResults.length },
       // Whole-run token & cost accounting (sum of per-symbol research).
       llmUsage: runUsage,
       results: ordered,
