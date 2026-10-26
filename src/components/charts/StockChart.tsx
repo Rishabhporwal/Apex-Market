@@ -54,7 +54,9 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
 
         if (candleRes.ok && isMounted) {
           const cData = await candleRes.json();
-          setCandles(cData);
+          // Gateway shape is {symbol, count, candles: [...]}; tolerate a bare
+          // array too (local fallback shape).
+          setCandles(Array.isArray(cData) ? cData : cData.candles || []);
         }
 
         if (techRes.ok && isMounted) {
