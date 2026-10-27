@@ -276,7 +276,7 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
           <div>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-                <Bell className="h-4 w-4" /> Verdict changes
+                <Bell className="h-4 w-4" /> Alerts
               </h2>
               {unseenCount > 0 && (
                 <button onClick={markAllSeen} className="inline-flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700">
@@ -286,13 +286,18 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
             </div>
             {alerts.length === 0 ? (
               <div className="glass-panel rounded-2xl p-8 text-center text-slate-500 text-sm">
-                No verdict changes yet. When a tracked company's rating flips (e.g. HOLD → BUY), it lands here.
+                No alerts yet. Verdict flips land here — and stocks you flagged &ldquo;notify me when tradable&rdquo; ping you the moment they get a valid plan.
               </div>
             ) : (
               <div className="glass-panel rounded-2xl divide-y divide-slate-200">
-                {alerts.map((a) => (
-                  <div key={a.id} className={`p-4 flex items-center gap-4 flex-wrap ${!a.seen ? (a.kind === 'pin_at_risk' ? 'bg-rose-50' : 'bg-cyan-50') : ''}`}>
-                    {!a.seen && <span className={`h-2 w-2 rounded-full shrink-0 ${a.kind === 'pin_at_risk' ? 'bg-rose-400' : 'bg-cyan-400'}`} title="New" />}
+                {alerts.map((a) => {
+                  const tint = !a.seen
+                    ? a.kind === 'pin_at_risk' ? 'bg-rose-50' : a.kind === 'became_tradable' ? 'bg-emerald-50' : 'bg-cyan-50'
+                    : '';
+                  const dot = a.kind === 'pin_at_risk' ? 'bg-rose-400' : a.kind === 'became_tradable' ? 'bg-emerald-400' : 'bg-cyan-400';
+                  return (
+                  <div key={a.id} className={`p-4 flex items-center gap-4 flex-wrap ${tint}`}>
+                    {!a.seen && <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} title="New" />}
                     <button onClick={() => onSelectSymbol(a.symbol)} className="font-bold text-slate-900 hover:text-cyan-700">
                       {a.symbol}
                     </button>
@@ -304,6 +309,14 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                         <span className="text-xs text-rose-500">{a.toAction}</span>
                         <span className="text-[10px] text-slate-400">pinned as {a.fromAction}</span>
                       </>
+                    ) : a.kind === 'became_tradable' ? (
+                      <>
+                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+                          now tradable
+                        </span>
+                        <span className="text-xs text-emerald-600">{a.toAction}</span>
+                        {a.confidence != null && <span className="text-[10px] text-slate-400">{a.confidence}% conf</span>}
+                      </>
                     ) : (
                       <div className="flex items-center gap-2">
                         <ActionBadge action={a.fromAction} />
@@ -311,10 +324,11 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                         <ActionBadge action={a.toAction} />
                       </div>
                     )}
-                    {a.price != null && <span className="text-xs text-slate-500">@ ${a.price?.toFixed(2)}{a.confidence ? ` · ${a.confidence}% conf` : ''}</span>}
+                    {a.kind !== 'became_tradable' && a.price != null && <span className="text-xs text-slate-500">@ ${a.price?.toFixed(2)}{a.confidence ? ` · ${a.confidence}% conf` : ''}</span>}
                     <span className="ml-auto text-xs text-slate-400">{timeAgo(a.createdAt)}</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

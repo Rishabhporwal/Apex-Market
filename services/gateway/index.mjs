@@ -217,6 +217,9 @@ app.all('/api/*', async (req, reply) => {
     if (url.startsWith('/api/watchlist/history/')) {
       // score-evolution series lives at userdata /history/:symbol
       downstreamPath = url.replace(/^\/api\/watchlist\/history/, '/history');
+    } else if (url.startsWith('/api/watchlist/check-now')) {
+      // immediate alert cycle — userdata serves it at the root, not under /watchlist
+      downstreamPath = '/check-now';
     } else {
       downstreamPath = url.replace(/^\/api/, '');
     }

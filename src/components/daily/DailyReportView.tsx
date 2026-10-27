@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle, CheckCircle2, Coins, Pin, X, Sparkles } from 'lucide-react';
+import { Trophy, RefreshCw, Loader2, CalendarClock, ArrowUpRight, AlertTriangle, CheckCircle2, Coins, Pin, X, Sparkles, Bell } from 'lucide-react';
 
 interface DailyRow {
   symbol: string;
@@ -19,7 +19,7 @@ interface DailyRow {
   reason?: string;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   cachedAnalysis?: boolean;
-  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; target2?: number | null; etaTarget1Days?: number | null; etaTarget2Days?: number | null; etaReliable?: boolean | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; requiredRR?: number | null; geometryNote?: string | null; lowRR: boolean } | null;
+  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; target2?: number | null; etaTarget1Days?: number | null; etaTarget2Days?: number | null; etaReliable?: boolean | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; requiredRR?: number | null; geometryNote?: string | null; lowRR: boolean; tradable?: boolean } | null;
   llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
 }
@@ -62,21 +62,44 @@ const fmt = (v?: number | null) => (v == null ? '—' : `$${v.toFixed(2)}`);
 export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: string) => void }) {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [pins, setPins] = useState<PinnedAnalysis[]>([]);
+  // 'Notify me when tradable' flag per symbol, persisted on watchlist rows via
+  // svc-userdata (POST /api/watchlist/notify-tradable).
+  const [notifyMap, setNotifyMap] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [res, pinRes] = await Promise.all([fetch('/api/daily-report'), fetch('/api/pins')]);
+      const [res, pinRes, wlRes] = await Promise.all([fetch('/api/daily-report'), fetch('/api/pins'), fetch('/api/watchlist')]);
       if (res.ok) setReport(await res.json());
       if (pinRes.ok) setPins((await pinRes.json()).pins || []);
+      if (wlRes.ok) {
+        const map: Record<string, boolean> = {};
+        for (const s of (await wlRes.json()).symbols || []) map[s.symbol] = !!s.notifyTradable;
+        setNotifyMap(map);
+      }
     } catch { /* offline */ } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const toggleNotify = async (symbol: string, enabled: boolean) => {
+    // Optimistic — the flag is per-symbol user state, cheap to roll back on failure.
+    setNotifyMap((m) => ({ ...m, [symbol]: enabled }));
+    try {
+      const res = await fetch('/api/watchlist/notify-tradable', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ symbol, enabled }),
+      });
+      if (!res.ok) throw new Error('failed');
+    } catch {
+      setNotifyMap((m) => ({ ...m, [symbol]: !enabled }));
+    }
+  };
 
   const runNow = async () => {
     setRunning(true);
@@ -310,6 +333,30 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                       <div className="text-slate-900 font-medium">{fmt(r.price)}</div>
                     </div>
                   </div>
+                  {r.tradePlan?.tradable === false && (
+                    /* Row is itself a <button>, so the toggle is a span with
+                       button semantics — nested buttons are invalid HTML. */
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => { e.stopPropagation(); void toggleNotify(r.symbol, !notifyMap[r.symbol]); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); void toggleNotify(r.symbol, !notifyMap[r.symbol]); } }}
+                      className={
+                        'mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium cursor-pointer transition select-none ' +
+                        (notifyMap[r.symbol]
+                          ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                          : 'bg-white text-slate-500 border-slate-200 hover:border-emerald-200 hover:text-emerald-600')
+                      }
+                      title={
+                        notifyMap[r.symbol]
+                          ? "You'll get a watchlist alert the moment this geometry clears the adaptive bar (checked every 5 minutes)"
+                          : 'No valid plan right now — get a watchlist alert the moment one becomes tradable'
+                      }
+                    >
+                      <Bell className="h-3 w-3" />
+                      {notifyMap[r.symbol] ? 'Will notify when tradable' : 'Notify me when tradable'}
+                    </span>
+                  )}
                   {r.tradePlan?.geometryNote && <p className="mt-2 text-[11px] text-slate-400 font-mono tabular-nums">{r.tradePlan.geometryNote}</p>}
                   {r.reason && <p className="mt-3 text-xs text-slate-400 leading-relaxed line-clamp-2">{r.reason}</p>}
                 </div>

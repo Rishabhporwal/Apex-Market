@@ -98,6 +98,10 @@ db.exec(`
     PRIMARY KEY (client_id, symbol)
   );
 `);
+// Column migrations AFTER the CREATE TABLE block (a fresh DB has no tables
+// before it, so ensureColumn must not run against a missing table).
+ensureColumn('watchlist', 'notify_tradable', 'INTEGER NOT NULL DEFAULT 0');
+ensureColumn('watchlist', 'tradable_notified', 'INTEGER NOT NULL DEFAULT 0');
 
 // ---- Identity ---------------------------------------------------------------
 function clientIdFor(req) {
@@ -116,7 +120,7 @@ function cleanSymbol(raw) {
 
 const insertWatch = db.prepare('INSERT OR IGNORE INTO watchlist (client_id, symbol, added_at) VALUES (?, ?, ?)');
 const deleteWatch = db.prepare('DELETE FROM watchlist WHERE client_id = ? AND symbol = ?');
-const listWatch = db.prepare('SELECT symbol, added_at FROM watchlist WHERE client_id = ? ORDER BY added_at ASC, symbol ASC');
+const listWatch = db.prepare('SELECT symbol, added_at, notify_tradable FROM watchlist WHERE client_id = ? ORDER BY added_at ASC, symbol ASC');
 const allSnapshots = db.prepare('SELECT * FROM verdict_snapshots');
 const getSnapshot = db.prepare('SELECT * FROM verdict_snapshots WHERE symbol = ?');
 const upsertSnapshot = db.prepare(`
@@ -139,6 +143,15 @@ const listAlerts = db.prepare('SELECT * FROM alerts WHERE client_id = ? AND (? =
 const countUnseen = db.prepare('SELECT COUNT(*) AS n FROM alerts WHERE client_id = ? AND seen = 0');
 const markSeen = db.prepare('UPDATE alerts SET seen = 1 WHERE id = ? AND client_id = ?');
 const distinctSymbols = db.prepare('SELECT DISTINCT symbol FROM watchlist');
+// 'Notify me when tradable': per-(client, symbol) state lives on the watchlist
+// row itself — tradable_notified=1 means we already alerted while the plan is
+// tradable (dedupe); it resets to 0 the first cycle the plan is NOT tradable,
+// so the next false→true crossing fires again.
+const notifyWatchers = db.prepare(
+  'SELECT client_id, tradable_notified FROM watchlist WHERE symbol = ? AND notify_tradable = 1'
+);
+const markNotified = db.prepare('UPDATE watchlist SET tradable_notified = 1 WHERE client_id = ? AND symbol = ?');
+const clearNotified = db.prepare('UPDATE watchlist SET tradable_notified = 0 WHERE client_id = ? AND symbol = ?');
 const insertHistory = db.prepare(`
   INSERT INTO verdict_history (symbol, action, confidence, price, checked_at)
   VALUES (@symbol, @action, @confidence, @price, @checked_at)
@@ -156,6 +169,7 @@ function watchlistResponse(clientId) {
     return {
       symbol: r.symbol,
       addedAt: r.added_at,
+      notifyTradable: !!r.notify_tradable,
       lastVerdict: s ? { action: s.action, confidence: s.confidence, price: s.price, checkedAt: s.checked_at } : null,
     };
   });
@@ -204,6 +218,7 @@ async function runCheckCycle(reason = 'scheduled') {
         if (!res.ok || !action) throw new Error(`bad verdict response (${res.status})`);
         const now = Date.now();
         const prev = getSnapshot.get(symbol);
+        const notifyCreated = [];
         const snap = {
           symbol, action,
           confidence: typeof v.verdict.confidence === 'number' ? Math.round(v.verdict.confidence) : null,
@@ -270,8 +285,42 @@ async function runCheckCycle(reason = 'scheduled') {
             cycleLog.alerts += 1;
             cycleLog.pinAlerts = (cycleLog.pinAlerts || 0) + 1;
           }
+          // ---- 'Notify me when tradable' (became_tradable alerts) ----------
+          // The verdict response carries tradePlan even at depth=quant (only
+          // news + LLM narrative are skipped), so tradable / requiredRR /
+          // rewardRisk are free here. Fire once per (client, symbol) while the
+          // plan stays tradable; reset when it stops being tradable so the
+          // next false→true crossing alerts again. A missing tradePlan is
+          // treated as unknown — leave the per-client state untouched.
+          const tp = v?.tradePlan;
+          if (tp && typeof tp.tradable === 'boolean') {
+            for (const n of notifyWatchers.all(symbol)) {
+              if (tp.tradable) {
+                if (!n.tradable_notified) {
+                  const req = typeof tp.requiredRR === 'number' ? tp.requiredRR : null;
+                  const rr = typeof tp.rewardRisk === 'number' ? tp.rewardRisk : null;
+                  const detail = req != null
+                    ? `R>=${req.toFixed(2).replace(/\.?0+$/, '')} met${rr != null ? ` (plan R:R ${rr.toFixed(2)}:1)` : ''}`
+                    : 'geometry clears the adaptive bar';
+                  const text = `🟢 ${symbol} now has a valid trade plan — ${detail}`;
+                  insertAlertKind.run({
+                    client_id: n.client_id, symbol, kind: 'became_tradable',
+                    from_action: action, to_action: `now has a valid trade plan — ${detail}`,
+                    confidence: snap.confidence, price: snap.price, created_at: now,
+                  });
+                  markNotified.run(n.client_id, symbol);
+                  notifyCreated.push({ symbol, text });
+                  cycleLog.alerts += 1;
+                  cycleLog.tradableAlerts = (cycleLog.tradableAlerts || 0) + 1;
+                }
+              } else {
+                clearNotified.run(n.client_id, symbol);
+              }
+            }
+          }
         });
         tx();
+        if (notifyCreated.length) deliverWebhook(notifyCreated);
         cycleLog.checked += 1;
       } catch (err) {
         cycleLog.failed += 1;
@@ -314,6 +363,26 @@ app.delete('/watchlist/:symbol', async (req) => {
   return watchlistResponse(clientId);
 });
 
+// POST /watchlist/notify-tradable {symbol, enabled: boolean} — the 'Notify me
+// when tradable' toggle. Enabling inserts the watchlist row if missing (the
+// alert cycle only checks watched symbols) and resets tradable_notified so a
+// currently-tradable plan alerts once on the next cycle. Disabling only flips
+// the flag — watchlist membership is left as the user set it.
+app.post('/watchlist/notify-tradable', async (req, reply) => {
+  const clientId = clientIdFor(req);
+  const symbol = cleanSymbol(req.body?.symbol);
+  if (typeof req.body?.enabled !== 'boolean') {
+    return reply.status(400).send({ error: 'body.enabled (boolean) is required' });
+  }
+  const tx = db.transaction(() => {
+    if (req.body.enabled) insertWatch.run(clientId, symbol, Date.now());
+    db.prepare('UPDATE watchlist SET notify_tradable = ?, tradable_notified = 0 WHERE client_id = ? AND symbol = ?')
+      .run(req.body.enabled ? 1 : 0, clientId, symbol);
+  });
+  tx();
+  return watchlistResponse(clientId);
+});
+
 app.get('/alerts', async (req) => {
   const clientId = clientIdFor(req);
   const unseenOnly = req.query.unseen === '1' || req.query.unseen === 'true';
@@ -344,7 +413,9 @@ async function deliverWebhook(alerts) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        text: alerts.map((a) => `📈 ${a.symbol} verdict changed: ${a.fromAction} → ${a.toAction} (confidence ${a.confidence ?? '—'}%, price ${a.price != null ? '$' + a.price.toFixed(2) : 'n/a'})`).join('\n'),
+        // became_tradable alerts carry their own ready-made text; verdict-change
+        // alerts keep the original template.
+        text: alerts.map((a) => a.text || `📈 ${a.symbol} verdict changed: ${a.fromAction} → ${a.toAction} (confidence ${a.confidence ?? '—'}%, price ${a.price != null ? '$' + a.price.toFixed(2) : 'n/a'})`).join('\n'),
         alerts,
       }),
       signal: AbortSignal.timeout(10_000),
