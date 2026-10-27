@@ -7,6 +7,7 @@
  *
  * Usage:
  *   node scripts/ingest-edgar.mjs          # S&P 500 constituents (default)
+ *   node scripts/ingest-edgar.mjs --sp400  # S&P 400 MidCap constituents (GICS sectors from Wikipedia)
  *   node scripts/ingest-edgar.mjs --all    # every ticker in company_tickers.json (~10k)
  *
  * SEC policy: descriptive User-Agent required, max 10 req/s. We run at ~5 req/s
@@ -113,6 +114,46 @@ async function getAllUniverse() {
     sic: null,
     sector: null, // company_tickers.json carries no sector/SIC
   }));
+}
+
+async function getSp400Universe() {
+  // S&P 400 MidCap constituents from Wikipedia (Symbol / Security / GICS Sector),
+  // matched to CIKs via the SEC ticker map. Wikipedia carries no CIK column and
+  // the SEC map carries no sector, so the two sources are joined on ticker.
+  const WIKI_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies';
+  const [html, rawMap] = await Promise.all([
+    fetchText(WIKI_URL),
+    fetchJson(ALL_TICKERS_URL),
+  ]);
+  // SEC ticker map: canonicalize '.'/'-' share-class separators for joining.
+  const norm = (t) => t.toUpperCase().replace(/[.\-]/g, '.');
+  const cikByTicker = new Map();
+  for (const e of Object.values(rawMap)) {
+    const t = norm(String(e.ticker));
+    if (!cikByTicker.has(t)) cikByTicker.set(t, Number(e.cik_str));
+  }
+  const tableM = html.match(/<table[^>]*id="constituents"[^>]*>([\s\S]*?)<\/table>/);
+  if (!tableM) throw new Error('S&P 400 constituents table not found on Wikipedia page');
+  const stripCell = (c) => {
+    const body = c.includes('>') ? c.slice(c.indexOf('>') + 1) : c;
+    return body.replace(/<[^>]+>/g, '').trim();
+  };
+  const out = [];
+  const missing = [];
+  for (const row of tableM[1].split('<tr').slice(2)) {
+    const cells = row.split('<td').slice(1).map((c) => c.split('</td>')[0]);
+    if (cells.length < 3) continue;
+    let sym = null;
+    const hrefM = cells[0].match(/quote\/(?:XNYS|XNAS|ARCX|BATS):([A-Za-z0-9.\-]+)/);
+    if (hrefM) sym = hrefM[1].toUpperCase();
+    else { const aM = cells[0].match(/<a[^>]*>([^<]+)<\/a>/); sym = (aM ? aM[1] : stripCell(cells[0])).trim().toUpperCase(); }
+    if (!sym || !/^[A-Z][A-Z0-9.\-]{0,6}$/.test(sym)) continue;
+    const cik = cikByTicker.get(norm(sym));
+    if (!cik) { missing.push(sym); continue; }
+    out.push({ cik, ticker: sym, name: stripCell(cells[1]), sic: null, sector: stripCell(cells[2]) || null });
+  }
+  console.log(`S&P 400: parsed ${out.length} constituents, ${missing.length} without SEC CIK map entry${missing.length ? ` (e.g. ${missing.slice(0, 8).join(', ')})` : ''}`);
+  return out;
 }
 
 // ---- XBRL tag selection ----
@@ -308,10 +349,17 @@ async function initDb() {
 async function main() {
   const args = process.argv.slice(2);
   const ingestAll = args.includes('--all');
+  const ingestSp400 = args.includes('--sp400');
   fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  console.log(`Fetching universe (${ingestAll ? 'all ~10k tickers' : 'S&P 500'})...`);
-  const universe = ingestAll ? await getAllUniverse() : await getSp500Universe();
+  console.log(
+    `Fetching universe (${ingestAll ? 'all ~10k tickers' : ingestSp400 ? 'S&P 400 MidCap' : 'S&P 500'})...`
+  );
+  const universe = ingestAll
+    ? await getAllUniverse()
+    : ingestSp400
+      ? await getSp400Universe()
+      : await getSp500Universe();
   console.log(`Universe size: ${universe.length}`);
 
   const { instance, conn } = await initDb();
