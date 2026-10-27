@@ -571,9 +571,47 @@ function nextRunIso() {
   return new Date(nextRunMs()).toISOString();
 }
 
+// ---- Pre-market price freshness guard (secondary; host launchd is primary) --
+// com.tradexa.refresh-prices.plist runs the fast index-universe refresh in the
+// 07:25–08:10 ET window and stamps data/.last-price-refresh. If the report is
+// about to run and prices were not refreshed today (host asleep / plist not
+// installed), do a best-effort fast refresh first so analysis uses live rates.
+// The Docker image ships only services/ (no scripts/), so inside the container
+// this degrades to a logged warning and the run proceeds on existing prices.
+const PRICE_REFRESH_BUDGET_MS = 20 * 60 * 1000;
+
+async function ensureFreshPrices() {
+  const dataDir = path.dirname(DAILY_DIR);
+  const stateFile = path.join(dataDir, '.last-price-refresh');
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const today = fmt.format(new Date());
+  let last = null;
+  try { last = fs.readFileSync(stateFile, 'utf8').trim(); } catch { /* not refreshed yet */ }
+  if (last === today) return; // launchd already ran today
+  const script = path.resolve(process.cwd(), 'scripts', 'refresh-prices.mjs');
+  if (!fs.existsSync(script)) {
+    deps?.appLog?.warn({ span: 'verdict.daily', msg: `prices not refreshed today and scripts/refresh-prices.mjs is not present in this image — proceeding on existing prices (install com.tradexa.refresh-prices.plist on the host)` });
+    return;
+  }
+  deps?.appLog?.info({ span: 'verdict.daily', msg: `prices stale (last refresh ${last ?? 'never'}) — running fast index-universe refresh before analysis` });
+  try {
+    const { spawn } = await import('node:child_process');
+    await new Promise((resolve) => {
+      const child = spawn(process.execPath, [script, '--index-universe'], { stdio: 'ignore' });
+      const timer = setTimeout(() => { child.kill('SIGKILL'); resolve(); }, PRICE_REFRESH_BUDGET_MS).unref?.();
+      child.on('close', () => { clearTimeout(timer); resolve(); });
+      child.on('error', resolve);
+    });
+    deps?.appLog?.info({ span: 'verdict.daily', msg: `pre-report price refresh finished` });
+  } catch (err) {
+    deps?.appLog?.warn({ span: 'verdict.daily', msg: `pre-report price refresh failed: ${err.message}` });
+  }
+}
+
 export function scheduleDailyReport() {
   const fire = async () => {
     try {
+      await ensureFreshPrices();
       await runDailyReport('scheduled');
     } catch (err) {
       deps.appLog.warn({ span: 'verdict.daily', msg: `scheduled run failed: ${err.message}` });
@@ -597,6 +635,10 @@ export function catchUpDailyReport() {
     return; // already ran today
   } catch {
     // no report yet today — run after the mesh settles
-    setTimeout(() => runDailyReport('catch-up').catch((e) => deps.appLog.warn({ span: 'verdict.daily', msg: `catch-up failed: ${e.message}` })), 25_000).unref();
+    setTimeout(() => {
+      ensureFreshPrices()
+        .then(() => runDailyReport('catch-up'))
+        .catch((e) => deps.appLog.warn({ span: 'verdict.daily', msg: `catch-up failed: ${e.message}` }));
+    }, 25_000).unref();
   }
 }

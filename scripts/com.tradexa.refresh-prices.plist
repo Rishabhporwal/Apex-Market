@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tradexa.refresh-prices</string>
+
+    <!-- Tick every 30 minutes; scripts/scheduled-refresh.mjs decides whether
+         the tick is useful (07:25-08:10 America/New_York window, weekday,
+         once per day via data/.last-price-refresh). StartInterval is
+         DST-agnostic and launchd fires one missed tick on wake from sleep,
+         so the 30-min cadence also catches post-wake mornings. -->
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-lc</string>
+        <string>cd "$HOME/Desktop/Research Platform" &amp;&amp; exec /Users/rishabhporwal/.nvm/versions/node/v24.16.0/bin/node scripts/scheduled-refresh.mjs</string>
+    </array>
+
+    <!-- The wrapper does its own timestamped logging to data/refresh-cron.log;
+         these catch launchd-level failures (node not found, cd failed). -->
+    <key>StandardOutPath</key>
+    <string>/tmp/rp-refresh.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/rp-refresh.err</string>
+</dict>
+</plist>

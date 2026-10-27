@@ -10,6 +10,7 @@
     "ingest:edgar": "node scripts/ingest-edgar.mjs",
     "ingest:edgar:all": "node scripts/ingest-edgar.mjs --all",
     "refresh:prices": "node scripts/refresh-prices.mjs",
+ "refresh:prices:index": "node scripts/refresh-prices.mjs --index-universe",
     "backtest": "node scripts/backtest-verdicts.mjs",
     "svc:start": "node services/run-all.mjs",
     "svc:stop": "node services/run-all.mjs stop",

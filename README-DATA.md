@@ -42,16 +42,46 @@ expected.
 npm run ingest:edgar        # S&P 500 fundamentals (~5 min)
 npm run ingest:edgar:all    # full SEC universe ~10k (~2h)
 npm run ingest:edgar:quarterly  # S&P 500 + S&P 400 quarterly 10-Q + TTM (~15 min)
-npm run refresh:prices      # daily price refresh (~30s per 1000 tickers)
+npm run refresh:prices      # full warehouse price refresh (~7k tickers, ~90 min)
+npm run refresh:prices:index   # FAST: S&P 500 + S&P 400 only (~903 tickers, ~15 min)
 npm run backtest            # verdict-engine backtest → data/backtest-report.json
 ```
 
-## Scheduling (macOS launchd)
+`--index-universe` reads the constituent lists directly (S&P 500 CSV + the
+Wikipedia S&P 400 table — same sources as `ingest-edgar.mjs`; no warehouse
+snapshot needed) and MERGES the refreshed quotes into
+`data/latest-prices.json` so non-index tickers keep their last-known prices.
+
+## Scheduling (macOS launchd — pre-market price refresh)
+The daily analysis (svc-verdict `scheduleDailyReport`) runs at 08:30 ET, so
+live prices must be fresh before that. `com.tradexa.refresh-prices` ticks
+every 30 minutes and `scripts/scheduled-refresh.mjs` decides whether a tick
+is useful:
+
+- ET (America/New_York, DST-safe) weekday time must be inside **07:25–08:10**.
+- Skips if `data/.last-price-refresh` (ET date string) already == today.
+- Runs `node scripts/refresh-prices.mjs --index-universe` (~15 min, finishes
+  well before the 08:30 analysis), stamps the state file on success, and
+  appends timestamped output to `data/refresh-cron.log`.
+- A `data/.refresh-lock` (stale > 30 min is broken) prevents overlapping runs
+  when a tick fires mid-refresh.
+
+Sleep/DST robustness: a calendar job missed during sleep is lost forever, but
+launchd fires ONE missed `StartInterval` tick on wake — the guard then runs it
+if the window is still open. A fully missed window = skipped day; the next
+weekday retries. No fixed wall-clock hour is baked into launchd itself.
+
+Install:
 ```bash
-cp scripts/com.researchplatform.refresh-prices.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.researchplatform.refresh-prices.plist   # runs daily 08:00
-launchctl list | grep researchplatform   # verify
+cp scripts/com.tradexa.refresh-prices.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.tradexa.refresh-prices.plist
+launchctl list | grep tradexa   # verify: PID + last exit status
+tail -f data/refresh-cron.log   # watch the next 07:25–08:10 ET window
 ```
+svc-verdict's `scheduleDailyReport` carries the same guard as a secondary
+(best-effort): if prices were not refreshed today when the 08:30 run fires, it
+runs the fast refresh first (20-min budget) — but inside Docker the service
+image has no `scripts/`, so the host launchd job is the primary refresher.
 
 ## Lock etiquette (DuckDB = one writer per file)
 - The dev server / API opens the warehouse READ_ONLY. Never write to it from a request path.

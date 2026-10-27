@@ -11,7 +11,14 @@
  *       with the warehouse, and the screener can join live prices without lock fights.
  *  3. Designed to run daily via cron/launchd:  npm run refresh:prices
  *
- * Usage: node scripts/refresh-prices.mjs [--limit=N]   (limit for testing)
+ * Usage: node scripts/refresh-prices.mjs [--limit=N]     (limit for testing)
+ *        node scripts/refresh-prices.mjs --index-universe (fast pre-market mode)
+ *
+ * --index-universe refreshes ONLY the index constituents (~900 names: S&P 500 +
+ * S&P 400), which finishes in ~15 min instead of ~90. This is what the daily
+ * scheduler runs at 07:30 ET so prices are fresh before the 08:30 ET analysis.
+ * In this mode latest-prices.json is MERGED (index quotes overlay the existing
+ * snapshot) so the other warehouse names keep their last-known prices.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +31,7 @@ const PRICES_DB = path.join(ROOT, 'data', 'prices.duckdb');
 const args = process.argv.slice(2);
 const limitArg = args.find((a) => a.startsWith('--limit='));
 const LIMIT = limitArg ? Number(limitArg.split('=')[1]) : Infinity;
+const INDEX_MODE = args.includes('--index-universe');
 
 if (!fs.existsSync(WAREHOUSE)) {
   console.error('FATAL: data/warehouse.duckdb not found. Run the EDGAR ingest first.');
@@ -59,18 +67,90 @@ async function fetchQuotesBatch(symbols) {
   return results;
 }
 
+// ---- index universes (fast pre-market mode) ----
+const UA = 'Research Platform <admin@researchplatform.dev>';
+const SP500_CSV_URL =
+  'https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv';
+const SP400_WIKI_URL = 'https://en.wikipedia.org/wiki/List_of_S%26P_400_companies';
+
+async function fetchText(url, { retries = 3 } = {}) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const res = await fetch(url, { headers: { 'User-Agent': UA } });
+    if (res.ok) return await res.text();
+    if (attempt === retries) throw new Error(`HTTP ${res.status} for ${url}`);
+    await new Promise((r) => setTimeout(r, 1000 * attempt));
+  }
+}
+
+/** S&P 500 symbols from the datasets/constituents.csv (same source as ingest-edgar). */
+async function getSp500Symbols() {
+  const csv = await fetchText(SP500_CSV_URL);
+  const lines = csv.trim().split('\n');
+  const symCol = lines[0].split(',').indexOf('Symbol');
+  const out = new Set();
+  for (const line of lines.slice(1)) {
+    // simple CSV parse tolerant of quoted commas
+    const cells = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { cells.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur);
+    const sym = (cells[symCol] || '').trim().toUpperCase();
+    if (sym) out.add(sym);
+  }
+  return out;
+}
+
+/** S&P 400 MidCap symbols from the Wikipedia constituents table (same parse as ingest-edgar). */
+async function getSp400Symbols() {
+  const html = await fetchText(SP400_WIKI_URL);
+  const tableM = html.match(/<table[^>]*id="constituents"[^>]*>([\s\S]*?)<\/table>/);
+  if (!tableM) throw new Error('S&P 400 constituents table not found on Wikipedia page');
+  const out = new Set();
+  for (const row of tableM[1].split('<tr').slice(2)) {
+    const cells = row.split('<td').slice(1).map((c) => c.split('</td>')[0]);
+    if (cells.length < 3) continue;
+    let sym = null;
+    const hrefM = cells[0].match(/quote\/(?:XNYS|XNAS|ARCX|BATS):([A-Za-z0-9.\-]+)/);
+    if (hrefM) sym = hrefM[1].toUpperCase();
+    else {
+      const aM = cells[0].match(/<a[^>]*>([^<]+)<\/a>/);
+      sym = (aM ? aM[1] : cells[0].replace(/<[^>]+>/g, '')).trim().toUpperCase();
+    }
+    if (sym && /^[A-Z][A-Z0-9.\-]{0,6}$/.test(sym)) out.add(sym.replace(/\./g, '-')); // Yahoo share-class format
+  }
+  return out;
+}
+
+/** ~900 tickers: S&P 500 ∪ S&P 400, deduped. No warehouse lookup needed. */
+async function getIndexUniverse() {
+  const [sp500, sp400] = await Promise.all([getSp500Symbols(), getSp400Symbols()]);
+  const tickers = [...new Set([...sp500, ...sp400])].sort();
+  console.log(`Index universe: ${sp500.size} S&P 500 + ${sp400.size} S&P 400 → ${tickers.length} unique tickers`);
+  return tickers;
+}
+
 // ---- main ----
 async function main() {
-  // Read the universe from the main warehouse via a file snapshot (avoids lock)
+  let tickers;
+  if (INDEX_MODE) {
+    tickers = await getIndexUniverse();
+  } else {
+    // Read the universe from the main warehouse via a file snapshot (avoids lock)
   const snapDir = fs.mkdtempSync(path.join(ROOT, 'data', 'rp-snap-'));
   const snapshot = path.join(snapDir, 'warehouse.duckdb');
   fs.copyFileSync(WAREHOUSE, snapshot);
   const snapDb = await DuckDBInstance.create(snapshot, { access_mode: 'READ_ONLY' });
   const snapConn = await snapDb.connect();
   const rs = await snapConn.runAndReadAll('SELECT ticker FROM companies ORDER BY ticker');
-  const tickers = rs.getRowObjects().map((r) => String(r.ticker)).filter((t) => t && t !== 'null');
-  await snapConn.closeSync();
-  fs.rmSync(snapDir, { recursive: true, force: true });
+    const allTickers = rs.getRowObjects().map((r) => String(r.ticker)).filter((t) => t && t !== 'null');
+    tickers = allTickers;
+    await snapConn.closeSync();
+    fs.rmSync(snapDir, { recursive: true, force: true });
+  }
   console.log(`Universe: ${tickers.length} tickers`);
 
   const target = LIMIT !== Infinity ? tickers.slice(0, LIMIT) : tickers;
@@ -118,13 +198,20 @@ async function main() {
   await conn.run('CHECKPOINT'); // flush WAL so read-only consumers see everything
   conn.closeSync();
 
-  // Also write a JSON snapshot for the API layer to consume cheaply
+  // Also write a JSON snapshot for the API layer to consume cheaply.
+  // Index mode MERGES into the existing snapshot: it only fetches ~900 index
+  // names, and clobbering the file would drop every other warehouse ticker.
   const jsonPath = path.join(ROOT, 'data', 'latest-prices.json');
-  fs.writeFileSync(jsonPath, JSON.stringify(
-    Object.fromEntries(ok.map((q) => [q.ticker, q])),
-    null, 0
-  ));
-  console.log(`Snapshot written: data/latest-prices.json`);
+  let finalMap = Object.fromEntries(ok.map((q) => [q.ticker, q]));
+  if (INDEX_MODE) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+      finalMap = { ...prev, ...finalMap };
+      console.log(`Merged with existing snapshot (${Object.keys(prev).length} prior entries)`);
+    } catch { /* no prior snapshot — write fresh */ }
+  }
+  fs.writeFileSync(jsonPath, JSON.stringify(finalMap, null, 0));
+  console.log(`Snapshot written: data/latest-prices.json (${Object.keys(finalMap).length} tickers)`);
 }
 
 main().catch((e) => { console.error('FATAL:', e); process.exit(1); });
