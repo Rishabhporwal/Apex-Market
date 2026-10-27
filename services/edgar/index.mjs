@@ -125,7 +125,7 @@ async function getScreenerResults(filters) {
   const ready = await isWarehouseReady();
   if (!ready) return { warehouseReady: false, results: [] };
 
-  const limit = Math.max(1, Math.min(filters.limit ?? 50, 1000));
+  const limit = Math.max(1, Math.min(filters.limit ?? 10, 1000)); // default 10 per screen — user preference (2026-10-27)
   const search = filters.searchQuery?.trim();
 
   const sql = `${revenueCteSql()}
