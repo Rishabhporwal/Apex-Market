@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.6'; // adaptive required R:R: confidence-scaled bar gated on 20d drift + news sentiment
+const VERDICT_ENGINE_VERSION = '2026-10-27.7'; // percentile-rank fundamentals composition + 12-1 momentum (skip-1m) block
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
@@ -121,7 +121,8 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   // EDGAR fundamentals (cheap local read, feeds the ±35 quality term).
   const [quoteRes, candlesRes, newsRes, edgarRes, earningsRes] = await Promise.allSettled([
     callPeer('market-data', `/quote/${encodeURIComponent(clean)}`, { ctx }),
-    callPeer('market-data', `/candles/${encodeURIComponent(clean)}?timeframe=1y&interval=1d`, { ctx }),
+    // 2y of daily candles: 12-1 momentum needs ~13 months of history.
+    callPeer('market-data', `/candles/${encodeURIComponent(clean)}?timeframe=2y&interval=1d`, { ctx }),
     depth === 'quant' ? Promise.resolve(null) : callPeer('news', `/drivers/${encodeURIComponent(clean)}`, { ctx }),
     callPeer('edgar', `/company/${encodeURIComponent(clean)}`, { ctx }),
     // Earnings-calendar awareness: surfaced as a badge + caution in the UI.

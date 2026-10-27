@@ -38,7 +38,11 @@ export interface VerdictBreakdown {
     max: number;
     used: boolean;
     factors: { name: string; value: string; points: number }[];
+    /** Renormalized cross-sectional percentile composite (0-100) when scored on the sector-percentile basis. */
+    composite?: number;
   };
+  /** 12-1 momentum (skip-1m) block, ±10. Absent when history is too short. */
+  momentum?: VerdictScoreComponent;
   bearishVotes?: { count: number; reasons: string[] };
 }
 

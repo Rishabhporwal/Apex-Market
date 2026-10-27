@@ -175,16 +175,83 @@ export function percentileRank(sortedValues, x) {
   return Math.round(((below + 0.5 * equal) / sortedValues.length) * 100);
 }
 
-/** Percentile → points tiers (identical in quantEngine.ts — keep in lockstep). */
-function pointsFromPercentile(factor, pctile) {
-  switch (factor) {
-    case 'growth': return pctile >= 75 ? 12 : pctile >= 50 ? 6 : pctile >= 25 ? -6 : -12;
-    case 'margin': return pctile >= 75 ? 9 : pctile >= 50 ? 5 : pctile >= 25 ? 0 : -9;
-    case 'roe': return pctile >= 75 ? 8 : pctile >= 50 ? 4 : pctile >= 25 ? 0 : -8;
-    case 'pe': return pctile <= 25 ? 6 : pctile <= 75 ? 0 : -6; // inverted: cheap vs sector is good
-    default: return 0;
-  }
+// ---- Percentile-rank composition (v2) ---------------------------------------
+// Replaces the 4-tier point buckets for the fundamentals block with a
+// continuous cross-sectional percentile composition (Portfolio123-style):
+//   1. each factor is a cross-sectional percentile 0-100 within its sector,
+//   2. percentiles are made directional (higher = better),
+//   3. the weighted average over factors WITH percentile support is taken
+//      with weights RENORMALIZED over the present factors, so missing data
+//      compresses nothing (P123-style renormalization — the composite keeps
+//      the full 0-100 span regardless of how many factors have data),
+//   4. the composite maps linearly onto the EXISTING ±35 fundamentals scale:
+//      fundPts = (composite − 50) / 50 × 35, clamped ±35 — score scale,
+//      action thresholds and calibration bands are unchanged.
+// Weights mirror the old tier maxima (growth ±12, margin ±9, roe ±8, pe ±6,
+// total 35) so relative factor importance is preserved. When NO factor has a
+// percentile (sector stats unavailable), the original absolute-threshold
+// tiers still apply. Mirrored in quantEngine.ts — keep in lockstep.
+const FUNDAMENTAL_FACTORS = [
+  { key: 'growth', weight: 12, direction: 1, raw: 'revenueGrowthYoY', label: 'Revenue growth (YoY)', fmt: (v) => `${v.toFixed(1)}%` },
+  { key: 'margin', weight: 9, direction: 1, raw: 'netMargin', label: 'Net margin', fmt: (v) => `${v.toFixed(1)}%` },
+  { key: 'roe', weight: 8, direction: 1, raw: 'roe', label: 'Return on equity', fmt: (v) => `${v.toFixed(1)}%` },
+  { key: 'pe', weight: 6, direction: -1, raw: 'peRatio', label: 'P/E ratio', fmt: (v) => v.toFixed(1) },
+];
+
+/** Stretch a weighted average back over [lo, hi] (renormalization guard). */
+export function renormalize(weightedSum, weightSum, lo = 0, hi = 100) {
+  if (!(weightSum > 0)) return undefined;
+  const avg = weightedSum / weightSum;
+  return hi > lo ? ((avg - lo) / (hi - lo)) * 100 : 50;
 }
+
+/** Continuous percentile composition of the fundamentals block (see above). */
+export function fundamentalsComposite(pct, fundamentals) {
+  let weightedSum = 0;
+  let weightSum = 0;
+  const rows = [];
+  for (const f of FUNDAMENTAL_FACTORS) {
+    const raw = fundamentals ? fundamentals[f.raw] : undefined;
+    const pctile = pct ? pct[f.key] : undefined;
+    if (raw === undefined || !Number.isFinite(raw) || pctile === undefined) continue;
+    const directional = f.direction > 0 ? pctile : 100 - pctile;
+    weightedSum += f.weight * directional;
+    weightSum += f.weight;
+    rows.push({ factor: f, raw, pctile, directional });
+  }
+  if (!rows.length) return undefined;
+  const composite = renormalize(weightedSum, weightSum) ?? 50;
+  const unclamped = ((composite - 50) / 50) * 35;
+  return {
+    points: Math.max(-35, Math.min(35, unclamped)),
+    composite: Math.round(composite * 10) / 10,
+    factors: rows.map(({ factor: f, raw, pctile, directional }) => ({
+      name: f.label,
+      // Per-factor weighted contribution — sums to the composite points
+      // before the ±35 clamp (weights renormalize to 1 over present factors).
+      points: Math.round((((directional - 50) / 50) * f.weight) * 100) / 100,
+      value: `${f.fmt(raw)} (sector pctile ${pctile}/100)`,
+    })),
+  };
+}
+
+// ---- 12-1 momentum (skip-1m) ------------------------------------------------
+// Classic 11-month return EXCLUDING the most recent month:
+//   m = close[t−21 trading days] / close[t−252 trading days] − 1.
+// Skipping the recent month avoids the short-term reversal that contaminates
+// raw 12-month returns. Needs ≥ 253 daily closes. Scored on a fixed absolute
+// curve (±20% return → the full ±10 block, ~10% weight per published factor
+// bands) that is IDENTICAL in backtest and live — candle-derived, so no
+// cross-sectional distribution is required. Mirrored in quantEngine.ts.
+export function momentum121(closes) {
+  if (!Array.isArray(closes) || closes.length < 253) return undefined;
+  const past = closes[closes.length - 253];
+  const prev = closes[closes.length - 22];
+  if (!(past > 0) || !(prev > 0)) return undefined;
+  return prev / past - 1;
+}
+
+const MOMENTUM_BLOCK_MAX = 10;
 
 // ---- The core scoring function (mirrors aiVerdictService exactly) ----
 export function scoreVerdict(input) {
@@ -218,44 +285,57 @@ export function scoreVerdict(input) {
   // News sentiment ±25 (clamped)
   const sentPts = Math.max(-25, Math.min(25, sentimentScore / 4));
   score += sentPts;
-  // Fundamentals ±35 (clamped). Each factor scores on the company's percentile
-  // WITHIN its sector when a sector percentile is provided (sector-relative
-  // basis); otherwise the original absolute thresholds apply.
+  // Fundamentals ±35 (clamped). With sector percentiles: continuous
+  // percentile-rank composition (weighted, renormalized over present factors,
+  // mapped onto the existing ±35 scale). Without: original absolute tiers.
   let fundamentalsUsed = false;
   let fundPts = 0;
-  const fundFactors = [];
+  let fundFactors = [];
+  let fundComposite;
   if (fundamentals) {
-    if (fundamentals.revenueGrowthYoY !== undefined) {
-      const g = fundamentals.revenueGrowthYoY;
-      const sectorRelative = pct.growth !== undefined;
-      const p = sectorRelative ? pointsFromPercentile('growth', pct.growth) : (g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12);
-      fundPts += p;
-      fundFactors.push({ name: 'Revenue growth (YoY)', value: sectorRelative ? `${g.toFixed(1)}% (sector pctile ${pct.growth}/100)` : `${g.toFixed(1)}%`, points: p });
-    }
-    if (fundamentals.netMargin !== undefined) {
-      const m = fundamentals.netMargin;
-      const sectorRelative = pct.margin !== undefined;
-      const p = sectorRelative ? pointsFromPercentile('margin', pct.margin) : (m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9);
-      fundPts += p;
-      fundFactors.push({ name: 'Net margin', value: sectorRelative ? `${m.toFixed(1)}% (sector pctile ${pct.margin}/100)` : `${m.toFixed(1)}%`, points: p });
-    }
-    if (fundamentals.roe !== undefined) {
-      const r = fundamentals.roe;
-      const sectorRelative = pct.roe !== undefined;
-      const p = sectorRelative ? pointsFromPercentile('roe', pct.roe) : (r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8);
-      fundPts += p;
-      fundFactors.push({ name: 'Return on equity', value: sectorRelative ? `${r.toFixed(1)}% (sector pctile ${pct.roe}/100)` : `${r.toFixed(1)}%`, points: p });
-    }
-    if (fundamentals.peRatio !== undefined) {
-      const pe = fundamentals.peRatio;
-      const sectorRelative = pct.pe !== undefined;
-      const p = sectorRelative ? pointsFromPercentile('pe', pct.pe) : (pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6);
-      fundPts += p;
-      fundFactors.push({ name: 'P/E ratio', value: sectorRelative ? `${pe.toFixed(1)} (sector pctile ${pct.pe}/100)` : pe.toFixed(1), points: p });
-    }
     fundamentalsUsed = true;
-    fundPts = Math.max(-35, Math.min(35, fundPts));
+    const comp = fundamentalsComposite(pct, fundamentals);
+    if (comp) {
+      fundPts = comp.points;
+      fundComposite = comp.composite;
+      fundFactors = comp.factors;
+    } else {
+      // Absolute-threshold fallback (no cross-sectional support available).
+      if (fundamentals.revenueGrowthYoY !== undefined) {
+        const g = fundamentals.revenueGrowthYoY;
+        const p = g > 10 ? 12 : g > 0 ? 6 : g > -10 ? -6 : -12;
+        fundPts += p;
+        fundFactors.push({ name: 'Revenue growth (YoY)', value: `${g.toFixed(1)}%`, points: p });
+      }
+      if (fundamentals.netMargin !== undefined) {
+        const m = fundamentals.netMargin;
+        const p = m > 20 ? 9 : m > 5 ? 5 : m > 0 ? 0 : -9;
+        fundPts += p;
+        fundFactors.push({ name: 'Net margin', value: `${m.toFixed(1)}%`, points: p });
+      }
+      if (fundamentals.roe !== undefined) {
+        const r = fundamentals.roe;
+        const p = r > 20 ? 8 : r > 10 ? 4 : r > 0 ? 0 : -8;
+        fundPts += p;
+        fundFactors.push({ name: 'Return on equity', value: `${r.toFixed(1)}%`, points: p });
+      }
+      if (fundamentals.peRatio !== undefined) {
+        const pe = fundamentals.peRatio;
+        const p = pe > 0 && pe < 25 ? 6 : pe >= 25 && pe <= 60 ? 0 : -6;
+        fundPts += p;
+        fundFactors.push({ name: 'P/E ratio', value: pe.toFixed(1), points: p });
+      }
+      fundPts = Math.max(-35, Math.min(35, fundPts));
+    }
     score += fundPts;
+  }
+
+  // 12-1 momentum (skip-1m) ±10 — candle-derived, identical backtest/live.
+  const m121 = momentum121(closes);
+  let momPts = 0;
+  if (m121 !== undefined) {
+    momPts = Math.max(-MOMENTUM_BLOCK_MAX, Math.min(MOMENTUM_BLOCK_MAX, m121 * 50));
+    score += momPts;
   }
 
   score = Math.round(Math.max(-100, Math.min(100, score)));
@@ -299,13 +379,22 @@ export function scoreVerdict(input) {
       max: 35,
       used: fundamentalsUsed,
       factors: fundFactors,
-      ...(fundamentalsUsed ? { basis: pct.growth !== undefined || pct.margin !== undefined || pct.roe !== undefined || pct.pe !== undefined ? 'sector' : 'absolute' } : {}),
+      ...(fundComposite !== undefined ? { composite: fundComposite } : {}),
+      ...(fundamentalsUsed ? { basis: fundComposite !== undefined ? 'sector' : 'absolute' } : {}),
       detail: !fundamentalsUsed
         ? 'no EDGAR fundamentals available for this symbol'
-        : (pct.growth !== undefined || pct.margin !== undefined || pct.roe !== undefined || pct.pe !== undefined)
-        ? `${fundFactors.length} quality factors from SEC filings, scored relative to sector peers${pct.sector ? ` (${pct.sector})` : ''}`
-        : `${fundFactors.length} quality factors from SEC filings`,
+        : fundComposite !== undefined
+        ? `${fundFactors.length} quality factors from SEC filings, cross-sectional percentile composite ${fundComposite}/100 within sector${pct.sector ? ` (${pct.sector})` : ''}`
+        : `${fundFactors.length} quality factors from SEC filings (absolute thresholds — no sector percentiles available)`,
     },
+    ...(m121 !== undefined
+      ? {
+          momentum: {
+            points: Math.round(momPts * 10) / 10,
+            detail: `12-1 momentum (11-month return excluding the most recent month): ${(m121 * 100).toFixed(1)}% — ±20% maps to the full ±10 block`,
+          },
+        }
+      : {}),
     ...(bearishVotes ? { bearishVotes } : {}),
   };
 

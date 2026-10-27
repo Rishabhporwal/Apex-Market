@@ -5,28 +5,41 @@
  * this engine returned X% vs the S&P's Y% over the same windows."
  *
  * Method (honest by construction):
- *  - Walks monthly checkpoints over the last N years for each ticker.
+ *  - Walks monthly checkpoints over the last N years for a shared universe of
+ *    tickers. Pass 1 fetches every ticker's candles + EDGAR facts once; pass 2
+ *    walks the checkpoints CROSS-SECTIONALLY so scores can use cross-sectional
+ *    (sector) percentile ranks exactly like the live engine's composition.
  *  - At each checkpoint, feeds ONLY data available up to that date into the
  *    quant core (candles slice + fundamentals from the latest 10-K FILED
  *    before the checkpoint — no look-ahead; gated on the filing date, not the
  *    fiscal period end).
+ *  - Sector percentiles per checkpoint are computed within sector_label
+ *    (GICS) when a sector has >= 5 names with the factor, else across the
+ *    whole test universe (>= 10 names), else the factor drops out of the
+ *    composite (weights renormalize over present factors).
  *  - News/LLM are excluded from scoring (no historical news feed) — this makes
  *    results a lower-bound, not a fantasy.
  *  - Forward return = price change over the next `horizonDays` (default 90),
  *    evaluated per horizon at 5d, 21d AND the CLI horizon (each printed).
- *  - Transaction costs: 10 bps per side (20 bps round trip) deducted from
- *    every traded signal (BUY = long, SELL = short) — see COST_BPS_PER_SIDE.
+ *  - Transaction costs: LIQUIDITY-SCALED square-root impact (see COST_MODEL)
+ *    — small orders in thin names cost more; flat 10 bps only as a fallback
+ *    when volume/sigma data is missing.
  *  - Significance: bootstrap 95% CIs on TICKER-level alpha means (1000 draws,
  *    deterministic seed) so overlapping forward windows can't fake edge.
+ *  - Rank performance (P123-style quantile test): at each checkpoint the
+ *    scored universe is bucketed into score QUINTILES; mean forward return
+ *    and alpha per bucket; Spearman (and Pearson) of bucket-vs-return per
+ *    month; first-half vs second-half consistency; top-vs-middle-bucket
+ *    pass/fail — see rankPerformance in the report.
  *  - Benchmark: SPY buy-and-hold over the same windows.
  *  - Emits data/calibration.json: score-band -> observed target1 hit-rate
  *    (price reached target1 within the horizon before hitting the stop),
  *    consumed by the quant engine's confidence lookup.
- *  - Also re-scores every checkpoint the LEGACY way (pre-fix behavior:
- *    period-end gating + the fy='FY' query bug that silently selected zero
- *    fundamental rows) so the report can print an honest before/after.
+ *  - Also re-scores every checkpoint the LEGACY way (pre-composition behavior:
+ *    tiered fundamentals, no sector percentiles, no momentum block) so the
+ *    report can print an honest before/after.
  *
- * Usage:  node scripts/backtest-verdicts.mjs [--years=3] [--horizon=90] [--top=150] [--tickers=AAPL,MSFT]
+ * Usage:  node scripts/backtest-verdicts.mjs [--years=3] [--horizon=90] [--top=150] [--tickers=AAPL,MSFT] [--notional=25000]
  * Output: data/backtest-report.json + console summary
  */
 import fs from 'node:fs';
@@ -38,12 +51,22 @@ const WAREHOUSE = path.join(ROOT, 'data', 'warehouse.duckdb');
 const OUT = path.join(ROOT, 'data', 'backtest-report.json');
 const CALIBRATION_OUT = path.join(ROOT, 'data', 'calibration.json');
 
-// ---- transaction costs (P0-1 audit fix) ----
-// 10 bps per side: entry + exit = 20 bps round trip. Applied to every traded
-// signal (BUY = long entry/exit, SELL = short entry/cover) as a percentage-
-// point deduction from the forward return.
-const COST_BPS_PER_SIDE = 10;
-const COST_RT_PCT = (COST_BPS_PER_SIDE * 2) / 100; // 0.20 percentage points
+// ---- transaction costs: liquidity-scaled square-root impact ---------------
+// Flat 10 bps/side overstated edge on anything outside the most liquid names.
+// Form (published methodology concepts, re-expressed in our own terms):
+//   costPctPerSide = K × σ20 × sqrt(participation)
+//     σ20          = stdev of the last 20 daily log returns (realized vol)
+//     participation = orderNotional / 10-day median daily dollar volume
+//     K            = 2.0 impact coefficient
+// Small orders in thin names pay far more than mega-caps; the floor keeps a
+// minimal friction for ultra-liquid fills, the cap prevents absurd tails.
+// Fallback when volume/σ data is missing: flat 10 bps/side (old model).
+const IMPACT_K = 2.0;
+const COST_FLOOR_BPS_PER_SIDE = 1;
+const COST_CAP_BPS_PER_SIDE = 400;
+const FLAT_FALLBACK_BPS_PER_SIDE = 10;
+const SIGMA_WINDOW = 20; // daily log returns for realized vol
+const DV_WINDOW = 10; // days for median dollar volume
 
 // ---- args ----
 const args = process.argv.slice(2);
@@ -55,6 +78,7 @@ const YEARS = Number(getArg('years', 3));
 const HORIZON = Number(getArg('horizon', 90)); // forward return window in calendar days
 const TOP = Number(getArg('top', 150)); // how many S&P names to test (liquidity-first)
 const TICKERS_ARG = getArg('tickers', null);
+const NOTIONAL_USD = Number(getArg('notional', 25000)); // reference order size for impact
 
 // ---- per-horizon evaluation (audit fix) ----
 // The shipped trade windows are 5 and 21 days, but the report only ever
@@ -72,10 +96,39 @@ const DAY_MS = 24 * 3600 * 1000;
 const BOOTSTRAP_DRAWS = 1000;
 const BOOTSTRAP_SEED = 42;
 
+// ---- rank performance (quantile monotonicity) test ----
+// P123-style: bucket the scored universe into quintiles by verdict score at
+// each checkpoint, mean forward return per bucket, Spearman of bucket-vs-
+// return, first/second-half consistency, top-vs-middle pass/fail.
+const RANK_BUCKETS = 5;
+const RANK_MIN_UNIVERSE = 10; // need at least 2 names per bucket
+
 // ---- quant core (kept in lockstep with src/services/quantEngine.ts) ----
 const sma = (v, p) => (v.length < p ? undefined : v.slice(-p).reduce((a, b) => a + b, 0) / p);
 
+/** Wilder RSI — aligned with the engine (the old simple-average RSI is kept
+ *  below as rsiSimple for the legacy replication only). */
 function rsi(closes, period = 14) {
+  if (closes.length < period + 1) return undefined;
+  let avgGain = 0;
+  let avgLoss = 0;
+  const window = closes.slice(-(period + 1));
+  for (let i = 1; i < window.length; i++) {
+    const diff = window[i] - window[i - 1];
+    if (i === 1) {
+      avgGain = Math.max(0, diff);
+      avgLoss = Math.max(0, -diff);
+      continue;
+    }
+    avgGain = (avgGain * (period - 1) + Math.max(0, diff)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(0, -diff)) / period;
+  }
+  if (avgLoss === 0) return avgGain === 0 ? 50 : 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+/** Legacy simple-average RSI (pre-Wilder) — kept ONLY for the legacy replication. */
+function rsiSimple(closes, period = 14) {
   if (closes.length < period + 1) return undefined;
   let gains = 0, losses = 0;
   const w = closes.slice(-(period + 1));
@@ -94,6 +147,160 @@ function classifyTrend(price, s50, s200) {
     if (price < s50 && s50 < s200) return 'down';
   }
   return 'sideways';
+}
+
+// ---- percentile composition (mirror of quantEngine.mjs v2 — keep in lockstep)
+/** Midpoint percentile rank of x within a sorted array (0-100); needs >= 5 peers. */
+function percentileRank(sortedValues, x) {
+  if (!Array.isArray(sortedValues) || sortedValues.length < 5) return undefined;
+  if (typeof x !== 'number' || !Number.isFinite(x)) return undefined;
+  let below = 0;
+  let equal = 0;
+  for (const v of sortedValues) {
+    if (v < x) below++;
+    else if (v === x) equal++;
+  }
+  return Math.round(((below + 0.5 * equal) / sortedValues.length) * 100);
+}
+
+const FUNDAMENTAL_FACTORS = [
+  { key: 'growth', weight: 12, direction: 1, raw: 'revenueGrowthYoY' },
+  { key: 'margin', weight: 9, direction: 1, raw: 'netMargin' },
+  { key: 'roe', weight: 8, direction: 1, raw: 'roe' },
+  { key: 'pe', weight: 6, direction: -1, raw: 'peRatio' },
+];
+
+/** Stretch a weighted average back over [lo, hi] (renormalization guard). */
+function renormalize(weightedSum, weightSum, lo = 0, hi = 100) {
+  if (!(weightSum > 0)) return undefined;
+  const avg = weightedSum / weightSum;
+  return hi > lo ? ((avg - lo) / (hi - lo)) * 100 : 50;
+}
+
+/** Continuous percentile composition of the fundamentals block (±35 scale). */
+function fundamentalsComposite(pct, fundamentals) {
+  let weightedSum = 0;
+  let weightSum = 0;
+  for (const f of FUNDAMENTAL_FACTORS) {
+    const raw = fundamentals ? fundamentals[f.raw] : undefined;
+    const pctile = pct ? pct[f.key] : undefined;
+    if (raw === undefined || !Number.isFinite(raw) || pctile === undefined) continue;
+    weightedSum += f.weight * (f.direction > 0 ? pctile : 100 - pctile);
+    weightSum += f.weight;
+  }
+  if (!(weightSum > 0)) return undefined;
+  const composite = renormalize(weightedSum, weightSum) ?? 50;
+  return Math.max(-35, Math.min(35, ((composite - 50) / 50) * 35));
+}
+
+/** 12-1 momentum (skip-1m): close[t−21] / close[t−252] − 1; needs ≥ 253 closes. */
+function momentum121(closes) {
+  if (!Array.isArray(closes) || closes.length < 253) return undefined;
+  const past = closes[closes.length - 253];
+  const prev = closes[closes.length - 22];
+  if (!(past > 0) || !(prev > 0)) return undefined;
+  return prev / past - 1;
+}
+const MOMENTUM_BLOCK_MAX = 10;
+
+/**
+ * Quant-core mirror (current engine): trend ±25, RSI ±15 (Wilder), sentiment
+ * ±25 clamped /4, fundamentals ±35 via percentile composite (or absolute
+ * tiers without percentiles), 12-1 momentum ±10, BUY >= 35, SELL needs 2
+ * bearish votes. Must match services/verdict/quantEngine.mjs scoreVerdict.
+ */
+function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0, sectorPercentiles }) {
+  const pct = sectorPercentiles || {};
+  const closes = candles.map((c) => c.close);
+  const trend = classifyTrend(price, sma(closes, 50), sma(closes, 200));
+  const rv = rsi(closes, 14);
+
+  let score = 0;
+  if (trend === 'up') score += 25;
+  else if (trend === 'down') score -= 25;
+  if (rv !== undefined) {
+    if (rv < 30) score += 15;
+    else if (rv < 45) score += 7;
+    else if (rv > 70) score -= 15;
+    else if (rv > 55) score -= 7;
+  }
+  score += Math.max(-25, Math.min(25, sentimentScore / 4));
+  if (fundamentals) {
+    const comp = fundamentalsComposite(pct, fundamentals);
+    if (comp !== undefined) {
+      score += comp;
+    } else {
+      // Absolute-threshold fallback (no cross-sectional support available).
+      let f = 0;
+      if (fundamentals.revenueGrowthYoY !== undefined) f += fundamentals.revenueGrowthYoY > 10 ? 12 : fundamentals.revenueGrowthYoY > 0 ? 6 : fundamentals.revenueGrowthYoY > -10 ? -6 : -12;
+      if (fundamentals.netMargin !== undefined) f += fundamentals.netMargin > 20 ? 9 : fundamentals.netMargin > 5 ? 5 : fundamentals.netMargin > 0 ? 0 : -9;
+      if (fundamentals.roe !== undefined) f += fundamentals.roe > 20 ? 8 : fundamentals.roe > 10 ? 4 : fundamentals.roe > 0 ? 0 : -8;
+      if (fundamentals.peRatio !== undefined) f += fundamentals.peRatio > 0 && fundamentals.peRatio < 25 ? 6 : fundamentals.peRatio >= 25 && fundamentals.peRatio <= 60 ? 0 : -6;
+      score += Math.max(-35, Math.min(35, f));
+    }
+  }
+  const m121 = momentum121(closes);
+  if (m121 !== undefined) score += Math.max(-MOMENTUM_BLOCK_MAX, Math.min(MOMENTUM_BLOCK_MAX, m121 * 50));
+
+  score = Math.round(Math.max(-100, Math.min(100, score)));
+  let action;
+  if (score >= 35) action = 'BUY';
+  else if (score >= 15) action = 'HOLD';
+  else if (score > -15) action = 'HOLD';
+  else {
+    // SELL requires confirmation: a bare low score is frequently a temporary
+    // dip in a structurally sound company (value traps). Demand at least TWO
+    // independent bearish confirmations from {trend, fundamentals, momentum}.
+    let bearishVotes = 0;
+    if (trend === 'down') bearishVotes++;
+    if (fundamentals && ((fundamentals.revenueGrowthYoY !== undefined && fundamentals.revenueGrowthYoY < -5) || (fundamentals.netMargin !== undefined && fundamentals.netMargin < 0))) bearishVotes++;
+    if (rv !== undefined && rv > 70) bearishVotes++; // momentum exhaustion
+    action = bearishVotes >= 2 ? 'SELL' : 'HOLD';
+  }
+  return { score, action };
+}
+
+/**
+ * LEGACY replication (pre-composition behavior): tiered fundamentals from
+ * absolute thresholds, no sector percentiles, no momentum block, simple RSI.
+ * Preserved verbatim so the before/after comparison stays honest.
+ */
+function legacyScoreVerdict({ price, candles, fundamentals, sentimentScore = 0 }) {
+  const closes = candles.map((c) => c.close);
+  const trend = classifyTrend(price, sma(closes, 50), sma(closes, 200));
+  const rv = rsiSimple(closes, 14);
+
+  let score = 0;
+  if (trend === 'up') score += 25;
+  else if (trend === 'down') score -= 25;
+  if (rv !== undefined) {
+    if (rv < 30) score += 15;
+    else if (rv < 45) score += 7;
+    else if (rv > 70) score -= 15;
+    else if (rv > 55) score -= 7;
+  }
+  score += Math.max(-25, Math.min(25, sentimentScore / 4));
+  if (fundamentals) {
+    let f = 0;
+    if (fundamentals.revenueGrowthYoY !== undefined) f += fundamentals.revenueGrowthYoY > 10 ? 12 : fundamentals.revenueGrowthYoY > 0 ? 6 : fundamentals.revenueGrowthYoY > -10 ? -6 : -12;
+    if (fundamentals.netMargin !== undefined) f += fundamentals.netMargin > 20 ? 9 : fundamentals.netMargin > 5 ? 5 : fundamentals.netMargin > 0 ? 0 : -9;
+    if (fundamentals.roe !== undefined) f += fundamentals.roe > 20 ? 8 : fundamentals.roe > 10 ? 4 : fundamentals.roe > 0 ? 0 : -8;
+    if (fundamentals.peRatio !== undefined) f += fundamentals.peRatio > 0 && fundamentals.peRatio < 25 ? 6 : fundamentals.peRatio >= 25 && fundamentals.peRatio <= 60 ? 0 : -6;
+    score += Math.max(-35, Math.min(35, f));
+  }
+  score = Math.round(Math.max(-100, Math.min(100, score)));
+  let action;
+  if (score >= 35) action = 'BUY';
+  else if (score >= 15) action = 'HOLD';
+  else if (score > -15) action = 'HOLD';
+  else {
+    let bearishVotes = 0;
+    if (trend === 'down') bearishVotes++;
+    if (fundamentals && ((fundamentals.revenueGrowthYoY !== undefined && fundamentals.revenueGrowthYoY < -5) || (fundamentals.netMargin !== undefined && fundamentals.netMargin < 0))) bearishVotes++;
+    if (rv !== undefined && rv > 70) bearishVotes++;
+    action = bearishVotes >= 2 ? 'SELL' : 'HOLD';
+  }
+  return { score, action };
 }
 
 /** Deterministic PRNG (mulberry32) — reproducible bootstrap, zero deps. */
@@ -205,45 +412,115 @@ export function calibrationBand(score) {
 }
 const BAND_ORDER = ['<-35', '-35..-15', '-15..15', '15..35', '>=35'];
 
-function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0 }) {
-  const closes = candles.map((c) => c.close);
-  const trend = classifyTrend(price, sma(closes, 50), sma(closes, 200));
-  const rv = rsi(closes, 14);
+// ---- liquidity-scaled cost model ------------------------------------------
+/**
+ * Per-side cost as a fraction (e.g. 0.0012 = 12 bps) for an order placed at
+ * candles[idx]:
+ *   costPct = K × σ20 × sqrt(notional / medianDollarVolume10d)
+ * Fallback (missing σ/volume): flat FLAT_FALLBACK_BPS_PER_SIDE.
+ */
+function tradeCostPctPerSide(candles, idx, notionalUsd) {
+  const fallback = FLAT_FALLBACK_BPS_PER_SIDE / 10000;
+  const closeWin = candles.slice(Math.max(0, idx - SIGMA_WINDOW), idx + 1);
+  const dvWin = candles.slice(Math.max(0, idx - (DV_WINDOW - 1)), idx + 1);
+  if (closeWin.length < SIGMA_WINDOW + 1 || dvWin.length < DV_WINDOW) return { pct: fallback, fallback: true };
+  const rets = [];
+  for (let i = 1; i < closeWin.length; i++) {
+    if (closeWin[i - 1].close > 0) rets.push(Math.log(closeWin[i].close / closeWin[i - 1].close));
+  }
+  if (rets.length < SIGMA_WINDOW) return { pct: fallback, fallback: true };
+  const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const variance = rets.reduce((a, r) => a + (r - mean) ** 2, 0) / rets.length;
+  const sigma = Math.sqrt(variance);
+  const dvs = dvWin.map((c) => c.close * (c.volume || 0)).filter((v) => Number.isFinite(v) && v > 0);
+  if (dvs.length < Math.ceil(DV_WINDOW / 2)) return { pct: fallback, fallback: true };
+  dvs.sort((a, b) => a - b);
+  const medianDv = dvs[Math.floor(dvs.length / 2)];
+  if (!(medianDv > 0) || !(sigma > 0)) return { pct: fallback, fallback: true };
+  const participation = notionalUsd / medianDv;
+  let pct = IMPACT_K * sigma * Math.sqrt(participation);
+  pct = Math.min(COST_CAP_BPS_PER_SIDE / 10000, Math.max(COST_FLOOR_BPS_PER_SIDE / 10000, pct));
+  return { pct, fallback: false };
+}
 
-  let score = 0;
-  if (trend === 'up') score += 25;
-  else if (trend === 'down') score -= 25;
-  if (rv !== undefined) {
-    if (rv < 30) score += 15;
-    else if (rv < 45) score += 7;
-    else if (rv > 70) score -= 15;
-    else if (rv > 55) score -= 7;
+// ---- cross-sectional sector percentiles ------------------------------------
+/**
+ * For one factor across one checkpoint's snapshot: percentile of each name's
+ * value WITHIN its sector (needs >= 5 sector peers with data), else across
+ * the whole checkpoint universe (needs >= 10), else undefined (factor drops
+ * out of the composite — weights renormalize over present factors).
+ * Returns { pct: Map ticker -> percentile|undefined, provenance: {sector, universe, absent} }.
+ */
+function crossPercentiles(snapshot, valueOf) {
+  const bySector = new Map();
+  const all = [];
+  for (const s of snapshot) {
+    const v = valueOf(s);
+    if (v === undefined || !Number.isFinite(v)) continue;
+    if (!bySector.has(s.sector)) bySector.set(s.sector, []);
+    bySector.get(s.sector).push(v);
+    all.push(v);
   }
-  score += Math.max(-25, Math.min(25, sentimentScore / 4));
-  if (fundamentals) {
-    let f = 0;
-    if (fundamentals.revenueGrowthYoY !== undefined) f += fundamentals.revenueGrowthYoY > 10 ? 12 : fundamentals.revenueGrowthYoY > 0 ? 6 : fundamentals.revenueGrowthYoY > -10 ? -6 : -12;
-    if (fundamentals.netMargin !== undefined) f += fundamentals.netMargin > 20 ? 9 : fundamentals.netMargin > 5 ? 5 : fundamentals.netMargin > 0 ? 0 : -9;
-    if (fundamentals.roe !== undefined) f += fundamentals.roe > 20 ? 8 : fundamentals.roe > 10 ? 4 : fundamentals.roe > 0 ? 0 : -8;
-    if (fundamentals.peRatio !== undefined) f += fundamentals.peRatio > 0 && fundamentals.peRatio < 25 ? 6 : fundamentals.peRatio >= 25 && fundamentals.peRatio <= 60 ? 0 : -6;
-    score += Math.max(-35, Math.min(35, f));
+  for (const arr of bySector.values()) arr.sort((a, b) => a - b);
+  all.sort((a, b) => a - b);
+  const pct = new Map();
+  const provenance = { sector: 0, universe: 0, absent: 0 };
+  for (const s of snapshot) {
+    const v = valueOf(s);
+    if (v === undefined || !Number.isFinite(v)) { provenance.absent++; continue; }
+    const sectorVals = bySector.get(s.sector) || [];
+    if (sectorVals.length >= 5) { pct.set(s.ticker, percentileRank(sectorVals, v)); provenance.sector++; }
+    else if (all.length >= 10) { pct.set(s.ticker, percentileRank(all, v)); provenance.universe++; }
+    else provenance.absent++;
   }
-  score = Math.round(Math.max(-100, Math.min(100, score)));
-  let action;
-  if (score >= 35) action = 'BUY';
-  else if (score >= 15) action = 'HOLD';
-  else if (score > -15) action = 'HOLD';
-  else {
-    // SELL requires confirmation: a bare low score is frequently a temporary
-    // dip in a structurally sound company (value traps). Demand at least TWO
-    // independent bearish confirmations from {trend, fundamentals, momentum}.
-    let bearishVotes = 0;
-    if (trend === 'down') bearishVotes++;
-    if (fundamentals && ((fundamentals.revenueGrowthYoY !== undefined && fundamentals.revenueGrowthYoY < -5) || (fundamentals.netMargin !== undefined && fundamentals.netMargin < 0))) bearishVotes++;
-    if (rv !== undefined && rv > 70) bearishVotes++; // momentum exhaustion
-    action = bearishVotes >= 2 ? 'SELL' : 'HOLD';
+  return { pct, provenance };
+}
+
+// ---- rank performance statistics -------------------------------------------
+function pearson(xs, ys) {
+  const n = xs.length;
+  if (n < 2) return null;
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    sxy += dx * dy; sxx += dx * dx; syy += dy * dy;
   }
-  return { score, action };
+  if (sxx === 0 || syy === 0) return null; // zero variance — correlation undefined
+  return sxy / Math.sqrt(sxx * syy);
+}
+
+/** Average ranks (1-based) with ties sharing the mean of their slots. */
+function rankAvg(values) {
+  const idx = values.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
+  const ranks = new Array(values.length);
+  let i = 0;
+  while (i < idx.length) {
+    let j = i;
+    while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+    const avg = (i + j) / 2 + 1;
+    for (let k = i; k <= j; k++) ranks[idx[k][1]] = avg;
+    i = j + 1;
+  }
+  return ranks;
+}
+
+function spearman(xs, ys) {
+  return pearson(rankAvg(xs), rankAvg(ys));
+}
+
+/** Quintile (1=lowest scores … 5=highest scores) for an ascending-sorted list. */
+function quintileOf(position, n) {
+  const base = Math.floor(n / RANK_BUCKETS);
+  const rem = n % RANK_BUCKETS;
+  let acc = 0;
+  for (let q = 1; q <= RANK_BUCKETS; q++) {
+    const size = base + (q <= rem ? 1 : 0);
+    if (position < acc + size) return q;
+    acc += size;
+  }
+  return RANK_BUCKETS;
 }
 
 // ---- fundamentals as-of a date (EDGAR facts, no look-ahead) ----
@@ -333,7 +610,12 @@ async function main() {
     );
     tickers = rs.getRowObjects().map((r) => String(r.ticker)).filter((t) => t && t !== 'null');
   }
-  console.log(`Backtesting ${tickers.length} tickers | ${YEARS}y | ${HORIZON}d forward horizon`);
+  console.log(`Backtesting ${tickers.length} tickers | ${YEARS}y | ${HORIZON}d forward horizon | notional $${NOTIONAL_USD.toLocaleString()}/order`);
+
+  // Sector labels (GICS) for cross-sectional percentile grouping.
+  const sectorMap = new Map();
+  const sectorRs = await conn.runAndReadAll(`SELECT ticker, sector_label FROM companies WHERE ticker IS NOT NULL`);
+  for (const r of sectorRs.getRowObjects()) sectorMap.set(String(r.ticker), r.sector_label == null ? null : String(r.sector_label));
 
   // Benchmark: SPY daily closes from Yahoo (stooq fallback). Use yahoo-finance2 via dynamic import.
   const { default: YahooFinance } = await import('yahoo-finance2');
@@ -349,34 +631,14 @@ async function main() {
   const horizonMs = HORIZON * 24 * 3600 * 1000;
   const checkpointCount = Math.floor((YEARS * 365 - HORIZON) / 30.44); // monthly steps that leave room for the forward window
 
-  const mkBuckets = () => ({ BUY: [], SELL: [], HOLD: [] });
-  // Per-horizon accumulators: raw forward returns, SPY same-window returns,
-  // and net-of-costs variants for traded signals (BUY long / SELL short).
-  const byH = new Map();
-  for (const h of HORIZONS) byH.set(h, { action: mkBuckets(), spy: mkBuckets(), net: { BUY: [], SELL: [] }, spyNet: { BUY: [], SELL: [] } });
-  const primary = byH.get(HORIZON);
-  // Ticker-level return samples for the bootstrap: horizon -> action -> ticker -> {fwd[], spy[]}
-  const tickerStats = new Map();
-  for (const h of HORIZONS) tickerStats.set(h, { BUY: new Map(), SELL: new Map(), HOLD: new Map() });
-  // Legacy (pre-fix) replication for the before/after print: the old script
-  // gated facts on period end AND had a `fy = 'FY'` query bug that selected
-  // zero fundamental rows, so the scorer effectively never saw fundamentals.
-  // Measured at the primary (--horizon) window.
-  const legacyBuckets = mkBuckets();
-  const legacySpyBuckets = mkBuckets();
-  // Score-band calibration accumulators (target1-before-stop hit rates).
-  const calib = {};
-  for (const b of BAND_ORDER) calib[b] = { n: 0, hits: 0, stopped: 0, neither: 0 };
-  let totalSignals = 0;
+  // ======================= PASS 1: fetch per-ticker data =======================
+  const tickerData = new Map(); // ticker -> {candles, facts, sector}
   let skippedNoData = 0;
-  const perTicker = [];
-
   const progressEvery = Math.max(5, Math.floor(tickers.length / 10));
-
   for (let ti = 0; ti < tickers.length; ti++) {
     const ticker = tickers[ti];
     try {
-      // One fetch per ticker: 5y daily candles covers any 3y backtest with warmup.
+      // One fetch per ticker: (YEARS+1)y daily candles covers the backtest with warmup.
       const p1 = new Date(); p1.setFullYear(p1.getFullYear() - (YEARS + 1));
       const chart = await yf.chart(ticker, { period1: p1.toISOString().split('T')[0], interval: '1d' });
       const candlesAll = (chart.quotes || [])
@@ -400,89 +662,152 @@ async function main() {
         filedAt: r.filed_at == null ? null : new Date(String(r.filed_at)).getTime(),
         val: Number(r.val),
       }));
-
-      let signalsThisTicker = 0;
-      // Checkpoints: walk backwards from the newest date that still has a full forward window
-      const lastValidIdx = candlesAll.length - 1;
-      const latestT = candlesAll[lastValidIdx].t;
-      for (let k = checkpointCount; k >= 1; k--) {
-        const checkpointT = latestT - k * monthMs;
-        const idx = candlesAll.findIndex((c) => c.t >= checkpointT);
-        if (idx < 0 || idx < 210) continue; // need warmup for SMA200
-        const c0 = candlesAll[idx];
-
-        const slice = candlesAll.slice(0, idx + 1);
-        const fundamentals = buildFundamentalsAsOf(facts, c0.t);
-        // P/E from the checkpoint price and as-of EPS — both were observable at
-        // the checkpoint (see buildFundamentalsAsOf note).
-        if (fundamentals.epsDiluted && fundamentals.epsDiluted > 0) {
-          fundamentals.peRatio = c0.close / fundamentals.epsDiluted;
-        }
-        const { action, score } = scoreVerdict({ price: c0.close, candles: slice, fundamentals });
-
-        // Legacy replication (pre-fix behavior: fundamentals never reached the
-        // scorer) for the before/after comparison in the report.
-        const { action: legacyAction } = scoreVerdict({ price: c0.close, candles: slice });
-
-        // Calibration: same stop/target1 structure as the live trade plan, in
-        // the direction the score implies (>=0 long, <0 short) — measured at
-        // the PRIMARY horizon (calibration.json feeds the live engine there).
-        const pExitIdx = candlesAll.findIndex((c) => c.t >= c0.t + horizonMs);
-        if (pExitIdx >= 0) {
-          const dir = score >= 0 ? 'BUY' : 'SELL';
-          const struct = structureLevels(slice, dir);
-          if (struct && Number.isFinite(struct.stop) && Number.isFinite(struct.target1)) {
-            const outcome = pathOutcome(candlesAll, idx, pExitIdx, struct.stop, struct.target1, dir === 'BUY');
-            const b = calib[calibrationBand(score)];
-            b.n++;
-            if (outcome === 'hit') b.hits++;
-            else if (outcome === 'stop') b.stopped++;
-            else b.neither++;
-          }
-        }
-
-        // Per-horizon evaluation: one score per checkpoint, forward outcome
-        // measured at 5d, 21d AND the CLI horizon.
-        for (const h of HORIZONS) {
-          const exitIdx = candlesAll.findIndex((c) => c.t >= c0.t + h * DAY_MS);
-          if (exitIdx < 0) continue;
-          const c1 = candlesAll[exitIdx];
-          // SPY forward return over the same window
-          const spy0 = spy.find((s) => s.t >= c0.t);
-          const spy1 = spy.find((s) => s.t >= c1.t);
-          if (!spy0 || !spy1) continue;
-          const fwd = ((c1.close - c0.close) / c0.close) * 100;
-          const spyFwd = ((spy1.c - spy0.c) / spy0.c) * 100;
-          // Net of 10 bps/side (20 bps round trip). SELL = short: gross -fwd.
-          const netFwd = action === 'SELL' ? -fwd - COST_RT_PCT : fwd - COST_RT_PCT;
-          const B = byH.get(h);
-          B.action[action].push(fwd);
-          B.spy[action].push(spyFwd);
-          if (action === 'BUY' || action === 'SELL') {
-            B.net[action].push(netFwd);
-            B.spyNet[action].push(spyFwd);
-          }
-          let ts = tickerStats.get(h)[action].get(ticker);
-          if (!ts) { ts = { fwd: [], spy: [] }; tickerStats.get(h)[action].set(ticker, ts); }
-          ts.fwd.push(fwd);
-          ts.spy.push(spyFwd);
-          if (h === HORIZON) {
-            legacyBuckets[legacyAction].push(fwd);
-            legacySpyBuckets[legacyAction].push(spyFwd);
-          }
-        }
-        totalSignals++;
-        signalsThisTicker++;
-      }
-      perTicker.push({ ticker, signals: signalsThisTicker });
+      tickerData.set(ticker, { candles: candlesAll, facts, sector: sectorMap.get(ticker) ?? null });
     } catch (err) {
       skippedNoData++;
       if (String(err).includes('429')) console.warn('rate-limited; cooling 30s...');
       await new Promise((r) => setTimeout(r, 350)); // be polite to Yahoo
     }
-    if ((ti + 1) % progressEvery === 0) {
+    if ((ti + 1) % progressEvery === 0) console.log(`[fetch ${ti + 1}/${tickers.length}] ok=${tickerData.size} skipped=${skippedNoData}`);
+  }
+
+  // =================== PASS 2: cross-sectional checkpoints ====================
+  const mkBuckets = () => ({ BUY: [], SELL: [], HOLD: [] });
+  // Per-horizon accumulators: raw forward returns, SPY same-window returns,
+  // and net-of-costs variants for traded signals (BUY long / SELL short).
+  const byH = new Map();
+  for (const h of HORIZONS) byH.set(h, { action: mkBuckets(), spy: mkBuckets(), net: { BUY: [], SELL: [] }, spyNet: { BUY: [], SELL: [] } });
+  const primary = byH.get(HORIZON);
+  // Ticker-level return samples for the bootstrap: horizon -> action -> ticker -> {fwd[], spy[]}
+  const tickerStats = new Map();
+  for (const h of HORIZONS) tickerStats.set(h, { BUY: new Map(), SELL: new Map(), HOLD: new Map() });
+  // Legacy (pre-composition) replication for the before/after print.
+  const legacyBuckets = mkBuckets();
+  const legacySpyBuckets = mkBuckets();
+  // Score-band calibration accumulators (target1-before-stop hit rates).
+  const calib = {};
+  for (const b of BAND_ORDER) calib[b] = { n: 0, hits: 0, stopped: 0, neither: 0 };
+  // Rank-performance records: one per ticker-checkpoint at the primary horizon.
+  const rankRecords = [];
+  // Cost observations + cross-sectional percentile provenance counters.
+  const costSamples = [];
+  let costFallbacks = 0;
+  let pctSectorBasis = 0;
+  let pctUniverseBasis = 0;
+  let pctAbsent = 0;
+  let totalSignals = 0;
+
+  const latestT = Math.max(...[...tickerData.values()].map((d) => d.candles[d.candles.length - 1].t));
+  const checkpointLogEvery = Math.max(2, Math.floor(checkpointCount / 10));
+  let doneCheckpoints = 0;
+
+  for (let k = checkpointCount; k >= 1; k--) {
+    const checkpointT = latestT - k * monthMs;
+    const monthKey = new Date(checkpointT).toISOString().slice(0, 7);
+
+    // --- snapshot: every ticker with a bar at/after the checkpoint ---
+    const snaps = [];
+    for (const [ticker, d] of tickerData) {
+      const idx = d.candles.findIndex((c) => c.t >= checkpointT);
+      if (idx < 0 || idx < 210) continue; // need warmup for SMA200
+      const c0 = d.candles[idx];
+      const slice = d.candles.slice(0, idx + 1);
+      const closes = slice.map((c) => c.close);
+      const fundamentals = buildFundamentalsAsOf(d.facts, c0.t);
+      // P/E from the checkpoint price and as-of EPS — both were observable at
+      // the checkpoint (see buildFundamentalsAsOf note).
+      if (fundamentals.epsDiluted && fundamentals.epsDiluted > 0) {
+        fundamentals.peRatio = c0.close / fundamentals.epsDiluted;
+      }
+      snaps.push({ ticker, d, idx, c0, slice, closes, fundamentals, sector: d.sector });
+    }
+    if (snaps.length < RANK_MIN_UNIVERSE) continue;
+
+    // --- cross-sectional sector percentiles at this checkpoint ---
+    const pctResults = {
+      growth: crossPercentiles(snaps, (s) => s.fundamentals?.revenueGrowthYoY),
+      margin: crossPercentiles(snaps, (s) => s.fundamentals?.netMargin),
+      roe: crossPercentiles(snaps, (s) => s.fundamentals?.roe),
+      pe: crossPercentiles(snaps, (s) => s.fundamentals?.peRatio),
+    };
+    for (const { provenance } of Object.values(pctResults)) {
+      pctSectorBasis += provenance.sector;
+      pctUniverseBasis += provenance.universe;
+      pctAbsent += provenance.absent;
+    }
+
+    // --- score + evaluate every name at this checkpoint ---
+    for (const s of snaps) {
+      const sectorPercentiles = {};
+      for (const key of Object.keys(pctResults)) {
+        const p = pctResults[key].pct.get(s.ticker);
+        if (p !== undefined) sectorPercentiles[key] = p;
+      }
+      const { action, score } = scoreVerdict({ price: s.c0.close, candles: s.slice, fundamentals: s.fundamentals, sectorPercentiles });
+      // Legacy replication (pre-composition behavior) for the before/after report.
+      const { action: legacyAction } = legacyScoreVerdict({ price: s.c0.close, candles: s.slice });
+
+      // Liquidity-scaled per-side cost for an order placed at this checkpoint.
+      const cost = tradeCostPctPerSide(s.d.candles, s.idx, NOTIONAL_USD);
+      if (cost.fallback) costFallbacks++; else costSamples.push(cost.pct * 10000);
+      const costRtPct = cost.pct * 2; // entry + exit
+
+      // Calibration: same stop/target1 structure as the live trade plan, in
+      // the direction the score implies (>=0 long, <0 short) — measured at
+      // the PRIMARY horizon (calibration.json feeds the live engine there).
+      const pExitIdx = s.d.candles.findIndex((c) => c.t >= s.c0.t + horizonMs);
+      if (pExitIdx >= 0) {
+        const dir = score >= 0 ? 'BUY' : 'SELL';
+        const struct = structureLevels(s.slice, dir);
+        if (struct && Number.isFinite(struct.stop) && Number.isFinite(struct.target1)) {
+          const outcome = pathOutcome(s.d.candles, s.idx, pExitIdx, struct.stop, struct.target1, dir === 'BUY');
+          const b = calib[calibrationBand(score)];
+          b.n++;
+          if (outcome === 'hit') b.hits++;
+          else if (outcome === 'stop') b.stopped++;
+          else b.neither++;
+        }
+      }
+
+      // Per-horizon evaluation: one score per checkpoint, forward outcome
+      // measured at 5d, 21d AND the CLI horizon.
+      for (const h of HORIZONS) {
+        const exitIdx = s.d.candles.findIndex((c) => c.t >= s.c0.t + h * DAY_MS);
+        if (exitIdx < 0) continue;
+        const c1 = s.d.candles[exitIdx];
+        // SPY forward return over the same window
+        const spy0 = spy.find((x) => x.t >= s.c0.t);
+        const spy1 = spy.find((x) => x.t >= c1.t);
+        if (!spy0 || !spy1) continue;
+        const fwd = ((c1.close - s.c0.close) / s.c0.close) * 100;
+        const spyFwd = ((spy1.c - spy0.c) / spy0.c) * 100;
+        // Net of liquidity-scaled costs. SELL = short: gross -fwd.
+        const netFwd = action === 'SELL' ? -fwd - costRtPct : fwd - costRtPct;
+        const B = byH.get(h);
+        B.action[action].push(fwd);
+        B.spy[action].push(spyFwd);
+        if (action === 'BUY' || action === 'SELL') {
+          B.net[action].push(netFwd);
+          B.spyNet[action].push(spyFwd);
+        }
+        let ts = tickerStats.get(h)[action].get(s.ticker);
+        if (!ts) { ts = { fwd: [], spy: [] }; tickerStats.get(h)[action].set(s.ticker, ts); }
+        ts.fwd.push(fwd);
+        ts.spy.push(spyFwd);
+        if (h === HORIZON) {
+          legacyBuckets[legacyAction].push(fwd);
+          legacySpyBuckets[legacyAction].push(spyFwd);
+          // Rank-performance record at the primary horizon.
+          rankRecords.push({ monthKey, ticker: s.ticker, score, fwd, spyFwd, alpha: fwd - spyFwd });
+        }
+      }
+      totalSignals++;
+    }
+
+    doneCheckpoints++;
+    if (doneCheckpoints % checkpointLogEvery === 0) {
       const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
-      console.log(`[${ti + 1}/${tickers.length}] signals=${totalSignals} | BUY avg ${avg(primary.action.BUY).toFixed(1)}% (n=${primary.action.BUY.length}) | SELL avg ${avg(primary.action.SELL).toFixed(1)}% (n=${primary.action.SELL.length}) | SPY-BUY avg ${avg(primary.spy.BUY).toFixed(1)}%`);
+      console.log(`[ckpt ${doneCheckpoints}/${checkpointCount}] ${monthKey} signals=${totalSignals} | BUY avg ${avg(primary.action.BUY).toFixed(1)}% (n=${primary.action.BUY.length}) | SELL avg ${avg(primary.action.SELL).toFixed(1)}% (n=${primary.action.SELL.length}) | SPY-BUY avg ${avg(primary.spy.BUY).toFixed(1)}%`);
     }
   }
 
@@ -505,7 +830,6 @@ async function main() {
     raw.avgAlpha = r2(raw.avgForwardReturn - raw.spyAvgSameWindows);
     if (name === 'BUY' || name === 'SELL') {
       raw.netOfCosts = {
-        costBpsRoundTrip: COST_BPS_PER_SIDE * 2,
         avgReturn: r2(avg(B.net[name])),
         winRate: +winRate(B.net[name]).toFixed(1),
         avgAlpha: r2(avg(B.net[name]) - avg(B.spyNet[name])),
@@ -560,27 +884,149 @@ async function main() {
     };
   }
 
+  // ================= rank performance (quantile monotonicity) ================
+  const byMonth = new Map();
+  for (const rec of rankRecords) {
+    if (!byMonth.has(rec.monthKey)) byMonth.set(rec.monthKey, []);
+    byMonth.get(rec.monthKey).push(rec);
+  }
+  const perMonth = [];
+  const pooledAlpha = [[], [], [], [], []]; // quintile 1..5
+  const pooledFwd = [[], [], [], [], []];
+  for (const [monthKey, recs] of [...byMonth.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    if (recs.length < RANK_MIN_UNIVERSE) continue;
+    // Deterministic order: ascending score, ticker as tie-break.
+    recs.sort((a, b) => a.score - b.score || (a.ticker < b.ticker ? -1 : 1));
+    const qAlpha = [[], [], [], [], []];
+    const qFwd = [[], [], [], [], []];
+    recs.forEach((rec, pos) => {
+      const q = quintileOf(pos, recs.length) - 1;
+      qAlpha[q].push(rec.alpha);
+      qFwd[q].push(rec.fwd);
+    });
+    const meanAlpha = qAlpha.map((a) => avg(a));
+    const meanFwd = qFwd.map((a) => avg(a));
+    const bucketIdx = [1, 2, 3, 4, 5];
+    const spAlpha = spearman(bucketIdx, meanAlpha);
+    const spFwd = spearman(bucketIdx, meanFwd);
+    const peAlpha = pearson(bucketIdx, meanAlpha);
+    const topMinusMid = meanAlpha[4] - meanAlpha[2];
+    perMonth.push({
+      monthKey,
+      n: recs.length,
+      spearmanAlpha: spAlpha == null ? null : +spAlpha.toFixed(3),
+      spearmanRaw: spFwd == null ? null : +spFwd.toFixed(3),
+      pearsonAlpha: peAlpha == null ? null : +peAlpha.toFixed(3),
+      bucketMeanAlpha: meanAlpha.map((v) => +v.toFixed(2)),
+      bucketMeanFwd: meanFwd.map((v) => +v.toFixed(2)),
+      topMinusMid: +topMinusMid.toFixed(2),
+      topAboveMid: meanAlpha[4] > meanAlpha[2],
+    });
+    for (let q = 0; q < RANK_BUCKETS; q++) {
+      pooledAlpha[q].push(...qAlpha[q]);
+      pooledFwd[q].push(...qFwd[q]);
+    }
+  }
+  const summarizeMonths = (months) => {
+    const sp = months.map((m) => m.spearmanAlpha).filter((v) => v != null);
+    return {
+      months: months.length,
+      avgSpearman: sp.length ? +avg(sp).toFixed(3) : null,
+      medianSpearman: sp.length ? +median(sp).toFixed(3) : null,
+      positiveShare: sp.length ? +((100 * sp.filter((v) => v > 0).length) / sp.length).toFixed(1) : null,
+      avgTopMinusMid: months.length ? +avg(months.map((m) => m.topMinusMid)).toFixed(2) : null,
+      topAboveMidShare: months.length ? +((100 * months.filter((m) => m.topAboveMid).length) / months.length).toFixed(1) : null,
+    };
+  };
+  const half = Math.floor(perMonth.length / 2);
+  const pooledQuintiles = [];
+  for (let q = 0; q < RANK_BUCKETS; q++) {
+    pooledQuintiles.push({
+      quintile: q + 1,
+      n: pooledAlpha[q].length,
+      meanAlpha: r2(avg(pooledAlpha[q])),
+      meanForwardReturn: r2(avg(pooledFwd[q])),
+    });
+  }
+  const overall = summarizeMonths(perMonth);
+  const halves = { first: summarizeMonths(perMonth.slice(0, half)), second: summarizeMonths(perMonth.slice(half)) };
+  const topQ = pooledQuintiles[RANK_BUCKETS - 1];
+  const midQ = pooledQuintiles[Math.floor(RANK_BUCKETS / 2)];
+  const monotone = pooledQuintiles.every((q, i) => i === 0 || q.meanAlpha >= pooledQuintiles[i - 1].meanAlpha - 0.01);
+  const rankPerformance = {
+    horizonDays: HORIZON,
+    bucketCount: RANK_BUCKETS,
+    minUniversePerMonth: RANK_MIN_UNIVERSE,
+    monthsTested: perMonth.length,
+    observations: rankRecords.length,
+    perMonth: overall,
+    halves,
+    pooledQuintiles,
+    topVsMiddle: {
+      topQuintileMeanAlpha: topQ.meanAlpha,
+      middleQuintileMeanAlpha: midQ.meanAlpha,
+      spread: r2(topQ.meanAlpha - midQ.meanAlpha),
+    },
+    pooledMonotone: monotone,
+    verdict:
+      overall.avgSpearman != null && overall.avgSpearman > 0 && topQ.meanAlpha > midQ.meanAlpha
+        ? (halves.first.avgSpearman > 0 && halves.second.avgSpearman > 0 ? 'PASS — positive Spearman, top bucket above middle, consistent across halves' : 'MIXED — positive Spearman and top bucket above middle, but halves disagree')
+        : 'FAIL — no positive monotone score-return relationship',
+    note: 'Per checkpoint month: bucket the scored universe into score quintiles (5=top scores), mean forward return/alpha per bucket vs SPY same-window. Spearman = rank correlation of bucket index vs mean alpha. Pooled quintiles weight every checkpoint observation equally; forward windows overlap, so treat pooled means as descriptive, the per-month Spearman distribution as the significance signal.',
+    perMonthDetail: perMonth,
+  };
+
+  // Cost model observations.
+  const sortedCosts = [...costSamples].sort((a, b) => a - b);
+  const costModel = {
+    form: 'square-root impact: perSidePct = K × σ20(daily log returns) × sqrt(orderNotional / 10d-median daily dollar volume)',
+    impactCoefficientK: IMPACT_K,
+    orderNotionalUsd: NOTIONAL_USD,
+    floorBpsPerSide: COST_FLOOR_BPS_PER_SIDE,
+    capBpsPerSide: COST_CAP_BPS_PER_SIDE,
+    flatFallbackBpsPerSide: FLAT_FALLBACK_BPS_PER_SIDE,
+    fallbackUsedShare: totalSignals ? +((100 * costFallbacks) / totalSignals).toFixed(1) : null,
+    observed: sortedCosts.length
+      ? {
+          n: sortedCosts.length,
+          medianBpsPerSide: +median(sortedCosts).toFixed(1),
+          meanBpsPerSide: +avg(sortedCosts).toFixed(1),
+          p10BpsPerSide: +sortedCosts[Math.floor(sortedCosts.length * 0.1)].toFixed(1),
+          p90BpsPerSide: +sortedCosts[Math.floor(sortedCosts.length * 0.9)].toFixed(1),
+        }
+      : null,
+    note: 'Applied per traded signal (BUY long, SELL short) as entry + exit (2 × per-side). HOLD signals are not traded and pay nothing.',
+  };
+
   const report = {
     generatedAt: new Date().toISOString(),
     config: {
       years: YEARS, horizonDays: HORIZON, horizons: HORIZONS, universe: tickers.length,
-      transactionCostBpsPerSide: COST_BPS_PER_SIDE,
+      costModel,
       fundamentalsGate: 'filed_at <= asOf (filing date); legacy NULL-filed_at rows use a conservative 45-day post-period-end approximation',
+      percentileComposition: {
+        basis: 'cross-sectional percentile within sector_label (GICS) at each checkpoint; universe-wide fallback when a sector has < 5 names with the factor; factor drops out when neither supports it',
+        sectorBasisObservations: pctSectorBasis,
+        universeBasisObservations: pctUniverseBasis,
+        absentObservations: pctAbsent,
+      },
       bootstrap: { draws: BOOTSTRAP_DRAWS, seed: BOOTSTRAP_SEED, unit: 'ticker-level alpha means (robust to overlapping checkpoints)' },
-      note: 'Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound.',
+      note: 'Quant-core only (trend+RSI+sentiment=0+percentile-composited fundamentals+12-1 momentum). News/LLM excluded — no honest historical news feed. Results are a lower bound.',
     },
-    totals: { signals: totalSignals, tickersTested: tickers.length - skippedNoData, tickersSkipped: skippedNoData },
+    totals: { signals: totalSignals, tickersTested: tickerData.size, tickersSkipped: skippedNoData, checkpoints: doneCheckpoints },
     // Primary (--horizon) summary, kept at top level for existing consumers.
     actions: horizonReports[HORIZON].actions,
     // Per-horizon evaluation + significance CIs (5d / 21d / CLI horizon).
     horizons: horizonReports,
+    // Rank performance: quantile monotonicity test of score vs forward return.
+    rankPerformance,
     // Before/after: exact legacy behavior re-scored over the same checkpoints.
     legacy: {
-      note: 'Pre-fix method: period-end gating + fy=\'FY\' query bug → fundamentals never reached the scorer; no transaction costs.',
+      note: 'Pre-composition method: tiered absolute-threshold fundamentals, no sector percentiles, no momentum block, simple-average RSI.',
       actions: { BUY: legacySummary('BUY'), HOLD: legacySummary('HOLD'), SELL: legacySummary('SELL') },
     },
     calibration,
-    perTickerSample: perTicker.slice(0, 20),
+    perTickerSample: [...tickerData.keys()].slice(0, 20).map((ticker) => ({ ticker, signals: rankRecords.filter((r) => r.ticker === ticker).length })),
   };
 
   fs.writeFileSync(OUT, JSON.stringify(report, null, 2));
@@ -589,13 +1035,13 @@ async function main() {
   const calibrationDoc = {
     generatedAt: report.generatedAt,
     source: 'scripts/backtest-verdicts.mjs',
-    config: { years: YEARS, horizonDays: HORIZON, signals: totalSignals, transactionCostBpsPerSide: COST_BPS_PER_SIDE },
+    config: { years: YEARS, horizonDays: HORIZON, signals: totalSignals, costModel: 'liquidity-scaled square-root impact (see backtest-report.json config.costModel)' },
     note: 'confidence = observed share of signals in the score band whose target1 was reached within the horizon before the stop (levels structure: window-5 fractal pivots + ATR-14, same as the live trade plan). Bands are half-open: [lo, hi) except >=35.',
     bands: calibration,
   };
   fs.writeFileSync(CALIBRATION_OUT, JSON.stringify(calibrationDoc, null, 2));
 
-  console.log('\n===== BACKTEST SUMMARY (corrected: filed-date gating, 20bps RT costs) =====');
+  console.log('\n===== BACKTEST SUMMARY (percentile composition, liquidity-scaled costs) =====');
   for (const h of HORIZONS) {
     console.log(`--- ${h}d horizon ---`);
     for (const [a, s] of Object.entries(horizonReports[h].actions)) {
@@ -611,6 +1057,16 @@ async function main() {
       console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} mean alpha ${c.meanAlpha > 0 ? '+' : ''}${c.meanAlpha}% [${lo}%, ${hi}%] over ${c.tickers} tickers → ${c.significantAt95 ? 'SIGNIFICANT at 95%' : 'not significant at 95%'}`);
     }
   }
+  console.log('\n===== RANK PERFORMANCE (quantile monotonicity, P123-style) =====');
+  console.log(`Horizon ${HORIZON}d | months tested ${rankPerformance.monthsTested} | observations ${rankPerformance.observations} | buckets ${RANK_BUCKETS} (5 = top scores)`);
+  console.log(`Spearman (bucket vs alpha): mean ${overall.avgSpearman == null ? 'n/a' : (overall.avgSpearman > 0 ? '+' : '') + overall.avgSpearman} | median ${overall.medianSpearman == null ? 'n/a' : (overall.medianSpearman > 0 ? '+' : '') + overall.medianSpearman} | positive in ${overall.positiveShare == null ? 'n/a' : overall.positiveShare + '%'} of months`);
+  console.log(`First half: mean Spearman ${halves.first.avgSpearman == null ? 'n/a' : (halves.first.avgSpearman > 0 ? '+' : '') + halves.first.avgSpearman} (${halves.first.months} months) | Second half: ${halves.second.avgSpearman == null ? 'n/a' : (halves.second.avgSpearman > 0 ? '+' : '') + halves.second.avgSpearman} (${halves.second.months} months)`);
+  console.log(`Pooled quintile mean alpha (Q1=worst scores → Q5=best): ${pooledQuintiles.map((q) => `Q${q.quintile} ${q.meanAlpha > 0 ? '+' : ''}${q.meanAlpha}% (n=${q.n})`).join(' | ')}`);
+  console.log(`Top vs middle quintile: ${rankPerformance.topVsMiddle.spread > 0 ? '+' : ''}${rankPerformance.topVsMiddle.spread}% | pooled monotone: ${monotone ? 'yes' : 'no'}`);
+  console.log(`VERDICT: ${rankPerformance.verdict}`);
+  console.log('\n===== COST MODEL (liquidity-scaled) =====');
+  console.log(`${costModel.form} | K=${IMPACT_K} | notional $${NOTIONAL_USD.toLocaleString()}`);
+  if (costModel.observed) console.log(`observed per-side: median ${costModel.observed.medianBpsPerSide}bps | mean ${costModel.observed.meanBpsPerSide}bps | p10 ${costModel.observed.p10BpsPerSide}bps | p90 ${costModel.observed.p90BpsPerSide}bps (fallback used for ${costModel.fallbackUsedShare}% of signals)`);
   console.log('\n===== BEFORE/AFTER vs legacy method (same checkpoints) =====');
   for (const a of ['BUY', 'HOLD', 'SELL']) {
     const o = report.actions[a];

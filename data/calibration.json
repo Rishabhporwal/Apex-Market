@@ -1,53 +1,53 @@
 {
-  "generatedAt": "2026-10-26T23:31:54.032Z",
+  "generatedAt": "2026-10-27T10:30:30.723Z",
   "source": "scripts/backtest-verdicts.mjs",
   "config": {
     "years": 3,
     "horizonDays": 90,
     "signals": 4693,
-    "transactionCostBpsPerSide": 10
+    "costModel": "liquidity-scaled square-root impact (see backtest-report.json config.costModel)"
   },
   "note": "confidence = observed share of signals in the score band whose target1 was reached within the horizon before the stop (levels structure: window-5 fractal pivots + ATR-14, same as the live trade plan). Bands are half-open: [lo, hi) except >=35.",
   "bands": {
     "<-35": {
-      "n": 49,
-      "hits": 30,
-      "stoppedFirst": 19,
+      "n": 244,
+      "hits": 144,
+      "stoppedFirst": 100,
       "neitherInHorizon": 0,
-      "hitRate": 61.2,
-      "confidence": 61
-    },
-    "-35..-15": {
-      "n": 264,
-      "hits": 157,
-      "stoppedFirst": 107,
-      "neitherInHorizon": 0,
-      "hitRate": 59.5,
+      "hitRate": 59,
       "confidence": 59
     },
+    "-35..-15": {
+      "n": 650,
+      "hits": 427,
+      "stoppedFirst": 222,
+      "neitherInHorizon": 1,
+      "hitRate": 65.7,
+      "confidence": 66
+    },
     "-15..15": {
-      "n": 1511,
-      "hits": 1016,
-      "stoppedFirst": 493,
-      "neitherInHorizon": 2,
-      "hitRate": 67.2,
-      "confidence": 67
+      "n": 1613,
+      "hits": 1018,
+      "stoppedFirst": 594,
+      "neitherInHorizon": 1,
+      "hitRate": 63.1,
+      "confidence": 63
     },
     "15..35": {
-      "n": 1565,
-      "hits": 1001,
-      "stoppedFirst": 564,
-      "neitherInHorizon": 0,
-      "hitRate": 64,
-      "confidence": 64
+      "n": 1251,
+      "hits": 818,
+      "stoppedFirst": 432,
+      "neitherInHorizon": 1,
+      "hitRate": 65.4,
+      "confidence": 65
     },
     ">=35": {
-      "n": 1016,
-      "hits": 660,
-      "stoppedFirst": 356,
+      "n": 647,
+      "hits": 398,
+      "stoppedFirst": 249,
       "neitherInHorizon": 0,
-      "hitRate": 65,
-      "confidence": 65
+      "hitRate": 61.5,
+      "confidence": 62
     }
   }
 }

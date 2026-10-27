@@ -25,7 +25,8 @@ class AiVerdictService {
 
     const settled = await Promise.allSettled([
       marketDataService.getQuote(clean),
-      marketDataService.getHistoricalCandles(clean, '1y', '1d'),
+      // 2y of daily candles: 12-1 momentum needs ~13 months of history.
+      marketDataService.getHistoricalCandles(clean, '2y', '1d'),
       getNewsDrivers(clean),
       financialsService.getKeyFinancials(clean).catch(() => null),
       this.fetchEdgarFundamentals(clean),

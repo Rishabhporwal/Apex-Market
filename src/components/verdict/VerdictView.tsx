@@ -64,7 +64,8 @@ interface AiVerdict {
     trend: { points: number; detail: string };
     rsi: { points: number; detail: string };
     sentiment: { points: number; detail: string };
-    fundamentals: { points: number; max: number; used: boolean; detail: string; factors: { name: string; value: string; points: number }[] };
+    fundamentals: { points: number; max: number; used: boolean; detail: string; factors: { name: string; value: string; points: number }[]; composite?: number };
+    momentum?: { points: number; detail: string };
     bearishVotes?: { count: number; reasons: string[] };
     score: number;
   };
@@ -190,12 +191,13 @@ function Tick({ left, color, label, tip }: { left: string; color: string; label:
 /** Drill-down: the per-component receipts behind the verdict score. */
 function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdict['breakdown']>; action: string }) {
   const [open, setOpen] = useState(false);
-  const total = breakdown.score ?? breakdown.trend.points + breakdown.rsi.points + breakdown.sentiment.points + breakdown.fundamentals.points;
+  const total = breakdown.score ?? breakdown.trend.points + breakdown.rsi.points + breakdown.sentiment.points + breakdown.fundamentals.points + (breakdown.momentum?.points ?? 0);
   const rows: { key: string; label: string; points: number; detail: string }[] = [
     { key: 'trend', label: 'Trend alignment', points: breakdown.trend.points, detail: breakdown.trend.detail },
     { key: 'rsi', label: 'RSI position', points: breakdown.rsi.points, detail: breakdown.rsi.detail },
     { key: 'sentiment', label: 'News sentiment', points: breakdown.sentiment.points, detail: breakdown.sentiment.detail },
     { key: 'fundamentals', label: 'Fundamental quality', points: breakdown.fundamentals.points, detail: breakdown.fundamentals.detail },
+    ...(breakdown.momentum ? [{ key: 'momentum', label: 'Momentum (12-1)', points: breakdown.momentum.points, detail: breakdown.momentum.detail }] : []),
   ];
   const ptsClass = (p: number) => (p > 0 ? 'text-emerald-600' : p < 0 ? 'text-rose-600' : 'text-slate-500');
   return (
@@ -242,7 +244,7 @@ function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdic
             </div>
           )}
           <div className="text-[11px] text-slate-500">
-            Deterministic scoring — same math the backtester runs. Trend ±25 · RSI ±15 · sentiment ±25 · fundamentals ±35. The total score is the components' sum, rounded.
+            Deterministic scoring — same math the backtester runs. Trend ±25 · RSI ±15 · sentiment ±25 · fundamentals ±35 (cross-sectional percentile composite when sector data is available) · momentum ±10. The total score is the components' sum, rounded.
             {action === 'SELL' ? '' : ' The AI narrative can only nudge the action when the score sits within 15 points of a boundary.'}
           </div>
         </div>
