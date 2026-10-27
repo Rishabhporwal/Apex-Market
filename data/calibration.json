@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-10-26T22:30:47.867Z",
+  "generatedAt": "2026-10-26T23:31:54.032Z",
   "source": "scripts/backtest-verdicts.mjs",
   "config": {
     "years": 3,
     "horizonDays": 90,
-    "signals": 4405,
+    "signals": 4693,
     "transactionCostBpsPerSide": 10
   },
   "note": "confidence = observed share of signals in the score band whose target1 was reached within the horizon before the stop (levels structure: window-5 fractal pivots + ATR-14, same as the live trade plan). Bands are half-open: [lo, hi) except >=35.",

@@ -1,15 +1,25 @@
 {
-  "generatedAt": "2026-10-26T22:30:47.867Z",
+  "generatedAt": "2026-10-26T23:31:54.032Z",
   "config": {
     "years": 3,
     "horizonDays": 90,
+    "horizons": [
+      5,
+      21,
+      90
+    ],
     "universe": 150,
     "transactionCostBpsPerSide": 10,
     "fundamentalsGate": "filed_at <= asOf (filing date); legacy NULL-filed_at rows use a conservative 45-day post-period-end approximation",
+    "bootstrap": {
+      "draws": 1000,
+      "seed": 42,
+      "unit": "ticker-level alpha means (robust to overlapping checkpoints)"
+    },
     "note": "Quant-core only (trend+RSI+fundamentals). News/LLM excluded — no honest historical news feed. Results are a lower bound."
   },
   "totals": {
-    "signals": 4405,
+    "signals": 4693,
     "tickersTested": 144,
     "tickersSkipped": 6
   },
@@ -50,6 +60,224 @@
         "winRate": 41.6,
         "avgAlpha": -11.29,
         "note": "short interpretation: gross = -forward return"
+      }
+    }
+  },
+  "horizons": {
+    "5": {
+      "horizonDays": 5,
+      "actions": {
+        "BUY": {
+          "n": 1081,
+          "avgForwardReturn": -0.38,
+          "median": -0.33,
+          "winRate": 44.8,
+          "spyAvgSameWindows": -0.33,
+          "avgAlpha": -0.05,
+          "netOfCosts": {
+            "costBpsRoundTrip": 20,
+            "avgReturn": -0.58,
+            "winRate": 41.9,
+            "avgAlpha": -0.25,
+            "note": "long"
+          }
+        },
+        "HOLD": {
+          "n": 3442,
+          "avgForwardReturn": -0.16,
+          "median": -0.18,
+          "winRate": 47.4,
+          "spyAvgSameWindows": -0.09,
+          "avgAlpha": -0.07
+        },
+        "SELL": {
+          "n": 170,
+          "avgForwardReturn": 0.15,
+          "median": -0.15,
+          "winRate": 45.3,
+          "spyAvgSameWindows": 0.05,
+          "avgAlpha": 0.1,
+          "netOfCosts": {
+            "costBpsRoundTrip": 20,
+            "avgReturn": -0.35,
+            "winRate": 49.4,
+            "avgAlpha": -0.4,
+            "note": "short interpretation: gross = -forward return"
+          }
+        }
+      },
+      "bootstrap95ci": {
+        "BUY": {
+          "tickers": 132,
+          "meanAlpha": -0.08,
+          "ci95": [
+            -0.35,
+            0.21
+          ],
+          "significantAt95": false
+        },
+        "HOLD": {
+          "tickers": 144,
+          "meanAlpha": -0.09,
+          "ci95": [
+            -0.26,
+            0.09
+          ],
+          "significantAt95": false
+        },
+        "SELL": {
+          "tickers": 47,
+          "meanAlpha": -0.2,
+          "ci95": [
+            -1.03,
+            0.62
+          ],
+          "significantAt95": false
+        }
+      }
+    },
+    "21": {
+      "horizonDays": 21,
+      "actions": {
+        "BUY": {
+          "n": 1081,
+          "avgForwardReturn": 0.73,
+          "median": 0.23,
+          "winRate": 51.8,
+          "spyAvgSameWindows": 0.62,
+          "avgAlpha": 0.11,
+          "netOfCosts": {
+            "costBpsRoundTrip": 20,
+            "avgReturn": 0.53,
+            "winRate": 50.1,
+            "avgAlpha": -0.1,
+            "note": "long"
+          }
+        },
+        "HOLD": {
+          "n": 3442,
+          "avgForwardReturn": 0.81,
+          "median": 0.5,
+          "winRate": 52.8,
+          "spyAvgSameWindows": 0.95,
+          "avgAlpha": -0.14
+        },
+        "SELL": {
+          "n": 170,
+          "avgForwardReturn": 1.67,
+          "median": 0.72,
+          "winRate": 52.4,
+          "spyAvgSameWindows": 1.49,
+          "avgAlpha": 0.18,
+          "netOfCosts": {
+            "costBpsRoundTrip": 20,
+            "avgReturn": -1.87,
+            "winRate": 45.3,
+            "avgAlpha": -3.35,
+            "note": "short interpretation: gross = -forward return"
+          }
+        }
+      },
+      "bootstrap95ci": {
+        "BUY": {
+          "tickers": 132,
+          "meanAlpha": 0.1,
+          "ci95": [
+            -0.48,
+            0.77
+          ],
+          "significantAt95": false
+        },
+        "HOLD": {
+          "tickers": 144,
+          "meanAlpha": -0.13,
+          "ci95": [
+            -0.46,
+            0.18
+          ],
+          "significantAt95": false
+        },
+        "SELL": {
+          "tickers": 47,
+          "meanAlpha": 0.32,
+          "ci95": [
+            -1.15,
+            1.72
+          ],
+          "significantAt95": false
+        }
+      }
+    },
+    "90": {
+      "horizonDays": 90,
+      "actions": {
+        "BUY": {
+          "n": 1016,
+          "avgForwardReturn": 3.15,
+          "median": 1.87,
+          "winRate": 56.4,
+          "spyAvgSameWindows": 3.49,
+          "avgAlpha": -0.34,
+          "netOfCosts": {
+            "costBpsRoundTrip": 20,
+            "avgReturn": 2.95,
+            "winRate": 55.9,
+            "avgAlpha": -0.55,
+            "note": "long"
+          }
+        },
+        "HOLD": {
+          "n": 3228,
+          "avgForwardReturn": 4.64,
+          "median": 2.5,
+          "winRate": 57.3,
+          "spyAvgSameWindows": 4.2,
+          "avgAlpha": 0.44
+        },
+        "SELL": {
+          "n": 161,
+          "avgForwardReturn": 6.19,
+          "median": 2.45,
+          "winRate": 57.8,
+          "spyAvgSameWindows": 4.9,
+          "avgAlpha": 1.29,
+          "netOfCosts": {
+            "costBpsRoundTrip": 20,
+            "avgReturn": -6.39,
+            "winRate": 41.6,
+            "avgAlpha": -11.29,
+            "note": "short interpretation: gross = -forward return"
+          }
+        }
+      },
+      "bootstrap95ci": {
+        "BUY": {
+          "tickers": 130,
+          "meanAlpha": -0.54,
+          "ci95": [
+            -2.54,
+            1.65
+          ],
+          "significantAt95": false
+        },
+        "HOLD": {
+          "tickers": 144,
+          "meanAlpha": 0.72,
+          "ci95": [
+            -0.41,
+            1.76
+          ],
+          "significantAt95": false
+        },
+        "SELL": {
+          "tickers": 45,
+          "meanAlpha": 3.26,
+          "ci95": [
+            -0.83,
+            7.67
+          ],
+          "significantAt95": false
+        }
       }
     }
   },
@@ -124,83 +352,83 @@
   "perTickerSample": [
     {
       "ticker": "AMZN",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "WMT",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "UNH",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "AAPL",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "MCK",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "GOOG",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "CVS",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "MSFT",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "COR",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "COST",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "CI",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "CAH",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "NVDA",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "META",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "ELV",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "F",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "CVX",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "JPM",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "CNC",
-      "signals": 31
+      "signals": 33
     },
     {
       "ticker": "GM",
-      "signals": 31
+      "signals": 33
     }
   ]
 }

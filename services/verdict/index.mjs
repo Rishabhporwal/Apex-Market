@@ -443,12 +443,27 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   }
   const rr1 = rewardRisk;
 
-  const tradePlan = {
+    // ---- Time-to-target estimate (honest, volatility-based) -------------------
+  // Expected trading days for price to travel to each target, using ATR14 as
+  // the average daily move. An estimate, not a promise — capped at the trade
+  // window; label says 'estimate'.
+  const etaDays = (tgt) => {
+    if (tgt == null || !atr14v || atr14v <= 0) return null;
+    const dist = Math.abs(tgt - price);
+    if (dist <= 0) return 1;
+    return Math.max(1, Math.round(dist / atr14v));
+  };
+  const etaT1 = etaDays(target1);
+  const etaT2 = etaDays(target2);
+
+const tradePlan = {
     entry: entryLow != null ? Number(entryLow.toFixed(2)) : null,
     entryHigh: Math.round(price * 100) / 100,
     stop: stop != null ? Number(stop.toFixed(2)) : null,
     target1: target1 != null ? Number(target1.toFixed(2)) : null,
     target2: target2 != null ? Number(target2.toFixed(2)) : null,
+    etaTarget1Days: etaT1,
+    etaTarget2Days: etaT2,
     riskPerShare: riskPerShare != null ? Number(riskPerShare.toFixed(2)) : null,
     rewardRisk: rr1 != null ? Number(Math.abs(rr1).toFixed(2)) : null,
     riskPct: riskPerShare != null && price > 0 ? Number(((riskPerShare / price) * 100).toFixed(2)) : null,

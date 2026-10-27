@@ -19,7 +19,7 @@ interface DailyRow {
   reason?: string;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   cachedAnalysis?: boolean;
-  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; lowRR: boolean } | null;
+  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; target2?: number | null; etaTarget1Days?: number | null; etaTarget2Days?: number | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; lowRR: boolean } | null;
   llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
 }
@@ -250,7 +250,7 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                   </div>
                   <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-[11px]">
                     <div><span className="text-slate-500">Buy zone:</span> <span className="text-emerald-300 font-semibold">{r.buyZone || '—'}</span></div>
-                    <div><span className="text-slate-500">Targets:</span> <span className="text-emerald-400">{fmt(r.target1)}</span> <span className="text-slate-600">/</span> <span className="text-emerald-500">{fmt(r.target2)}</span></div>
+                    <div><span className="text-slate-500">Targets:</span> <span className="text-emerald-400">{fmt(r.target1)}</span> <span className="text-slate-600">/</span> <span className="text-emerald-500">{fmt(r.target2)}</span>{r.tradePlan?.etaTarget1Days != null && <span className="text-slate-500"> · ~{r.tradePlan.etaTarget1Days}d</span>}</div>
                     <div><span className="text-slate-500">Stop:</span> <span className="text-rose-400 font-semibold">{fmt(r.stopLoss)}</span></div>
                     <div><span className="text-slate-500">Price:</span> <span className="text-white">{fmt(r.price)}</span></div>
                   </div>
