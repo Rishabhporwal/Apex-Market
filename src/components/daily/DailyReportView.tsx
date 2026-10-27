@@ -88,7 +88,12 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
       if (res.ok) setReport(await res.json());
       else {
         const body = await res.json().catch(() => ({}));
-        setRunError(body.error || `Run failed (${res.status})`);
+        const friendly: Record<number, string> = {
+          409: 'A run is already in progress — it usually takes a few minutes. The results will appear here when it finishes.',
+          502: "Couldn't reach the research services. Check that the platform (gateway) is running, then try again.",
+          504: 'The run took too long to acknowledge, but it may still be finishing server-side — check back in a few minutes.',
+        };
+        setRunError(friendly[res.status] || body.error || `Run failed (${res.status})`);
       }
     } catch {
       setRunError('Could not reach the research service');
