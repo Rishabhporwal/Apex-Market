@@ -252,7 +252,7 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                   </div>
                   <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-[11px]">
                     <div><span className="text-slate-500">Buy zone:</span> <span className="text-emerald-300 font-semibold">{r.buyZone || '—'}</span></div>
-                    <div><span className="text-slate-500">Targets:</span> <span className="text-emerald-400">{fmt(r.target1)}</span> <span className="text-slate-600">/</span> <span className="text-emerald-500">{fmt(r.target2)}</span>{r.tradePlan?.etaTarget1Days != null && <span className="text-slate-500"> · ~{r.tradePlan.etaTarget1Days}d</span>}</div>
+                    <div><span className="text-slate-500">Targets:</span> <span className="text-emerald-400">{fmt(r.target1)}</span> <span className="text-slate-600">/</span> <span className="text-emerald-500">{fmt(r.target2)}</span>{r.tradePlan?.etaTarget1Days != null && <span className="text-slate-500"> · ~{r.tradePlan.etaTarget1Days}d</span>}{r.tradePlan?.etaTarget2Days != null && <span className="text-slate-500"> / ~{r.tradePlan.etaTarget2Days}d</span>}</div>
                     <div><span className="text-slate-500">Stop:</span> <span className="text-rose-400 font-semibold">{fmt(r.stopLoss)}</span></div>
                     <div><span className="text-slate-500">Price:</span> <span className="text-white">{fmt(r.price)}</span></div>
                   </div>
