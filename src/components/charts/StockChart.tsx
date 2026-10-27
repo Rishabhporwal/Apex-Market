@@ -108,15 +108,15 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
   const getSignalBadgeColor = (signal?: string) => {
     switch (signal) {
       case 'STRONG_BUY':
-        return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+        return 'bg-emerald-50 text-emerald-600 border-emerald-200';
       case 'BUY':
-        return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
+        return 'bg-emerald-50 text-emerald-600 border-emerald-200';
       case 'STRONG_SELL':
-        return 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+        return 'bg-rose-50 text-rose-600 border-rose-200';
       case 'SELL':
-        return 'bg-rose-500/10 text-rose-300 border-rose-500/20';
+        return 'bg-rose-50 text-rose-600 border-rose-200';
       default:
-        return 'bg-amber-500/10 text-amber-300 border-amber-500/20';
+        return 'bg-amber-50 text-amber-600 border-amber-200';
     }
   };
 
@@ -125,27 +125,27 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
       {/* Stock Quote Header Bar */}
       <div className="glass-panel rounded-2xl p-4 sm:p-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-800 border border-slate-700/80 font-mono font-bold text-lg text-cyan-400">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-50 border border-slate-300 font-mono font-bold text-lg text-cyan-600">
             {symbol.slice(0, 3)}
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold font-mono tracking-tight text-white">{symbol}</h1>
-              <span className="text-sm text-slate-400 font-sans">{quote?.name || 'Equity Corporation'}</span>
-              <span className="rounded bg-slate-800 px-2 py-0.5 text-[11px] font-mono text-slate-400 border border-slate-700">
+              <h1 className="text-2xl font-bold font-mono tracking-tight text-slate-900">{symbol}</h1>
+              <span className="text-sm text-slate-500 font-sans">{quote?.name || 'Equity Corporation'}</span>
+              <span className="rounded bg-slate-50 px-2 py-0.5 text-[11px] font-mono text-slate-500 border border-slate-300">
                 {quote?.exchange || 'NASDAQ'}
               </span>
             </div>
             <div className="flex items-baseline gap-3 mt-1">
-              <span className="text-3xl font-extrabold font-mono text-white tracking-tight">
+              <span className="text-3xl font-extrabold font-mono text-slate-900 tracking-tight">
                 ${quote?.price ? quote.price.toFixed(2) : (activeCandle?.close || 0).toFixed(2)}
               </span>
               {quote && (
                 <span
                   className={`flex items-center text-sm font-semibold font-mono px-2 py-0.5 rounded ${
                     quote.change >= 0
-                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                      : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
+                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-600 border border-rose-200'
                   }`}
                 >
                   {quote.change >= 0 ? <ArrowUp className="h-3.5 w-3.5 mr-0.5" /> : <ArrowDown className="h-3.5 w-3.5 mr-0.5" />}
@@ -159,9 +159,9 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
 
         {/* Technical Signal Summary Card */}
         {technicalSummary && (
-          <div className="flex items-center gap-4 border-l border-slate-800 pl-4 sm:pl-6">
+          <div className="flex items-center gap-4 border-l border-slate-200 pl-4 sm:pl-6">
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Quant Signal</div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">Quant Signal</div>
               <div
                 className={`mt-1 inline-flex items-center px-3 py-1 rounded-full text-xs font-mono font-bold border ${getSignalBadgeColor(
                   technicalSummary.overallSignal
@@ -172,16 +172,16 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             </div>
 
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">RSI (14)</div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">RSI (14)</div>
               <div className="mt-1 flex items-center gap-1.5 font-mono text-xs">
-                <span className="font-bold text-white">{technicalSummary.rsi14.toFixed(1)}</span>
+                <span className="font-bold text-slate-900">{technicalSummary.rsi14.toFixed(1)}</span>
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded ${
                     technicalSummary.rsiCondition === 'OVERBOUGHT'
-                      ? 'bg-rose-500/20 text-rose-400'
+                      ? 'bg-rose-50 text-rose-600'
                       : technicalSummary.rsiCondition === 'OVERSOLD'
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : 'bg-slate-800 text-slate-300'
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-slate-50 text-slate-400'
                   }`}
                 >
                   {technicalSummary.rsiCondition}
@@ -190,12 +190,12 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             </div>
 
             <div className="hidden md:block">
-              <div className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider">Trend Setup</div>
+              <div className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">Trend Setup</div>
               <div className="mt-1 flex gap-1 font-mono text-[11px]">
-                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendShortTerm === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 bg-slate-800'}`}>
+                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendShortTerm === 'BULLISH' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-500 bg-slate-50'}`}>
                   Short: {technicalSummary.trendShortTerm}
                 </span>
-                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendLongTerm === 'BULLISH' ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400 bg-slate-800'}`}>
+                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendLongTerm === 'BULLISH' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-500 bg-slate-50'}`}>
                   Long: {technicalSummary.trendLongTerm}
                 </span>
               </div>
@@ -207,17 +207,17 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
       {/* Interactive Chart Container */}
       <div className="glass-panel rounded-2xl p-4 sm:p-6" ref={containerRef}>
         {/* Controls Bar: Timeframe, Chart Type, Indicator Toggles */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-4 mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4 mb-4">
           {/* Timeframe Selectors */}
-          <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 font-mono text-xs">
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 font-mono text-xs">
             {(['1d', '5d', '1mo', '6mo', '1y', '5y'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
                 className={`px-3 py-1.5 rounded-lg font-medium transition ${
                   timeframe === tf
-                    ? 'bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/30'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    ? 'bg-slate-900 text-white font-bold'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
                 {tf.toUpperCase()}
@@ -228,53 +228,53 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
           {/* Chart Style & Overlays */}
           <div className="flex flex-wrap items-center gap-2 text-xs">
             {/* Chart Type Toggle */}
-            <div className="flex items-center bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+            <div className="flex items-center bg-white p-1 rounded-xl border border-slate-200">
               <button
                 onClick={() => setChartType('candles')}
-                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'candles' ? 'bg-slate-800 text-cyan-400 font-bold' : 'text-slate-400'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'candles' ? 'bg-slate-50 text-cyan-600 font-bold' : 'text-slate-500'}`}
               >
                 Candles
               </button>
               <button
                 onClick={() => setChartType('line')}
-                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'line' ? 'bg-slate-800 text-cyan-400 font-bold' : 'text-slate-400'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'line' ? 'bg-slate-50 text-cyan-600 font-bold' : 'text-slate-500'}`}
               >
                 Area Line
               </button>
             </div>
 
             {/* Overlays */}
-            <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 font-mono">
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 font-mono">
               <button
                 onClick={() => setShowSMA20(!showSMA20)}
-                className={`px-2 py-1 rounded transition text-[11px] ${showSMA20 ? 'bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30' : 'text-slate-500'}`}
+                className={`px-2 py-1 rounded transition text-[11px] ${showSMA20 ? 'bg-amber-50 text-amber-600 font-semibold border border-amber-200' : 'text-slate-500'}`}
               >
                 SMA 20
               </button>
               <button
                 onClick={() => setShowSMA50(!showSMA50)}
-                className={`px-2 py-1 rounded transition text-[11px] ${showSMA50 ? 'bg-blue-500/20 text-blue-300 font-semibold border border-blue-500/30' : 'text-slate-500'}`}
+                className={`px-2 py-1 rounded transition text-[11px] ${showSMA50 ? 'bg-blue-50 text-blue-600 font-semibold border border-blue-200' : 'text-slate-500'}`}
               >
                 SMA 50
               </button>
               <button
                 onClick={() => setShowBollinger(!showBollinger)}
-                className={`px-2 py-1 rounded transition text-[11px] ${showBollinger ? 'bg-purple-500/20 text-purple-300 font-semibold border border-purple-500/30' : 'text-slate-500'}`}
+                className={`px-2 py-1 rounded transition text-[11px] ${showBollinger ? 'bg-purple-50 text-purple-600 font-semibold border border-purple-200' : 'text-slate-500'}`}
               >
                 BBands
               </button>
             </div>
 
             {/* Sub-Indicator Switcher */}
-            <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 font-mono">
+            <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 font-mono">
               {(['volume', 'rsi', 'macd'] as const).map((ind) => (
                 <button
                   key={ind}
                   onClick={() => setSubIndicator(ind)}
                   className={`px-2.5 py-1 rounded-lg uppercase text-[11px] transition ${
                     subIndicator === ind
-                      ? 'bg-slate-800 text-cyan-400 font-bold border border-slate-700'
-                      : 'text-slate-500 hover:text-slate-300'
+                      ? 'bg-slate-50 text-cyan-600 font-bold border border-slate-300'
+                      : 'text-slate-500 hover:text-slate-400'
                   }`}
                 >
                   {ind}
@@ -285,7 +285,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             {onRefresh && (
               <button
                 onClick={onRefresh}
-                className="p-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition"
+                className="p-1.5 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-900 transition"
                 title="Refresh Market Data"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -296,24 +296,24 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
 
         {/* OHLCV Live Tooltip Bar */}
         {activeCandle && (
-          <div className="flex flex-wrap items-center gap-4 bg-[#090e18] px-3 py-2 rounded-lg border border-slate-800 text-xs font-mono mb-2">
-            <span className="text-slate-400">
-              Date: <strong className="text-slate-200">{activeCandle.time}</strong>
+          <div className="flex flex-wrap items-center gap-4 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono mb-2">
+            <span className="text-slate-500">
+              Date: <strong className="text-slate-400">{activeCandle.time}</strong>
             </span>
-            <span className="text-slate-400">
-              O: <strong className="text-slate-200">${activeCandle.open.toFixed(2)}</strong>
+            <span className="text-slate-500">
+              O: <strong className="text-slate-400">${activeCandle.open.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-400">
-              H: <strong className="text-emerald-400">${activeCandle.high.toFixed(2)}</strong>
+            <span className="text-slate-500">
+              H: <strong className="text-emerald-600">${activeCandle.high.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-400">
-              L: <strong className="text-rose-400">${activeCandle.low.toFixed(2)}</strong>
+            <span className="text-slate-500">
+              L: <strong className="text-rose-600">${activeCandle.low.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-400">
-              C: <strong className="text-slate-100">${activeCandle.close.toFixed(2)}</strong>
+            <span className="text-slate-500">
+              C: <strong className="text-slate-900">${activeCandle.close.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-400">
-              Vol: <strong className="text-slate-300">{(activeCandle.volume / 1e6).toFixed(2)}M</strong>
+            <span className="text-slate-500">
+              Vol: <strong className="text-slate-400">{(activeCandle.volume / 1e6).toFixed(2)}M</strong>
             </span>
           </div>
         )}
@@ -321,7 +321,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
         {/* Main Price Chart Render */}
         {loading ? (
           <div className="h-[460px] flex items-center justify-center text-slate-500 font-mono">
-            <RefreshCw className="h-6 w-6 animate-spin mr-2 text-cyan-400" />
+            <RefreshCw className="h-6 w-6 animate-spin mr-2 text-cyan-600" />
             Loading high-resolution market data...
           </div>
         ) : candles.length === 0 ? (
@@ -349,7 +349,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                 const y = padding.top + pct * (chartHeight - padding.top - padding.bottom);
                 return (
                   <g key={i}>
-                    <line x1={padding.left} y1={y} x2={svgWidth - padding.right} y2={y} stroke="#1e293b" strokeDasharray="3 3" />
+                    <line x1={padding.left} y1={y} x2={svgWidth - padding.right} y2={y} stroke="#e2e8f0" strokeDasharray="3 3" />
                     <text x={svgWidth - padding.right + 8} y={y + 4} fill="#64748b" fontSize="10" fontFamily="monospace">
                       ${p.toFixed(2)}
                     </text>
@@ -395,7 +395,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                 <>
                   <defs>
                     <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.35" />
+                      <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.15" />
                       <stop offset="100%" stopColor="#06b6d4" stopOpacity="0.0" />
                     </linearGradient>
                   </defs>
@@ -411,7 +411,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                   <path
                     d={candles.map((c, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(c.close)}`).join(' ')}
                     fill="none"
-                    stroke="#06b6d4"
+                    stroke="#0891b2"
                     strokeWidth="2"
                   />
                 </>
@@ -503,7 +503,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                     strokeWidth="1"
                   />
                   {/* Point */}
-                  <circle cx={getX(hoverIndex)} cy={getY(candles[hoverIndex].close)} r="3" fill="#06b6d4" />
+                  <circle cx={getX(hoverIndex)} cy={getY(candles[hoverIndex].close)} r="3" fill="#0891b2" />
                 </g>
               )}
 
@@ -513,7 +513,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                 y1={chartHeight}
                 x2={svgWidth - padding.right}
                 y2={chartHeight}
-                stroke="#334155"
+                stroke="#cbd5e1"
                 strokeWidth="1"
               />
 
@@ -574,7 +574,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                   <text x={padding.left} y="12" fill="#64748b" fontSize="10" fontFamily="monospace">
                     MACD (12, 26, 9) HISTOGRAM
                   </text>
-                  <line x1={padding.left} y1={subChartHeight / 2} x2={svgWidth - padding.right} y2={subChartHeight / 2} stroke="#475569" strokeWidth="1" />
+                  <line x1={padding.left} y1={subChartHeight / 2} x2={svgWidth - padding.right} y2={subChartHeight / 2} stroke="#cbd5e1" strokeWidth="1" />
                   {candles.map((_, i) => {
                     const m = indicatorData[i]?.macd;
                     if (!m) return null;

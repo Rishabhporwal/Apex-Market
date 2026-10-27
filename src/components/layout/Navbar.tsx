@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { 
-  TrendingUp, 
-  Search, 
-  Activity, 
-  BarChart2, 
-  PieChart, 
-  FileText, 
-  Sliders, 
-  Zap, 
+import {
+  TrendingUp,
+  Search,
+  Activity,
+  BarChart2,
+  PieChart,
+  FileText,
+  Sliders,
+  Zap,
   Briefcase,
   Layers,
   ArrowUpRight,
@@ -83,29 +83,29 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
   }, [searchQuery]);
 
   const navItems = [
-    { id: 'discover', label: '🏠 Discover', icon: Compass },
-    { id: 'daily', label: '🏆 Top 5', icon: Trophy },
-    { id: 'prediction', label: '🤖 AI Verdict', icon: Target },
+    { id: 'discover', label: 'Discover', icon: Compass },
+    { id: 'daily', label: 'Top 5', icon: Trophy },
+    { id: 'prediction', label: 'AI Verdict', icon: Target },
     { id: 'chart', label: 'Terminal & Chart', icon: Activity },
     { id: 'financials', label: 'Financials & Valuation', icon: BarChart2 },
     { id: 'filings', label: 'SEC Filings & Calls', icon: FileText },
     { id: 'screener', label: 'Stock Screener', icon: Sliders },
     { id: 'backtest', label: 'Quant Backtester', icon: Zap },
     { id: 'portfolio', label: 'Paper Trading', icon: Briefcase },
-    { id: 'watchlist', label: '⭐ Watchlist', icon: Star },
+    { id: 'watchlist', label: 'Watchlist', icon: Star },
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-800/80 bg-[#070b12]/90 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white">
       {/* Index Ticker Tape Banner */}
-      <div className="border-b border-slate-800/50 bg-[#090e18]/80 px-4 py-1.5 text-xs">
+      <div className="border-b border-slate-100 bg-[#fafafa] px-4 py-1.5 text-xs">
         <div className="mx-auto flex max-w-7xl items-center justify-between overflow-x-auto gap-6 no-scrollbar">
-          <div className="flex items-center gap-2 text-slate-400 font-mono shrink-0">
+          <div className="flex items-center gap-2 text-slate-500 font-mono shrink-0">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-300">Market Pulse</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Market Pulse</span>
           </div>
 
-          <div className="flex items-center gap-6 text-xs font-mono shrink-0">
+          <div className="flex items-center gap-6 text-xs font-mono shrink-0 tabular-nums">
             {indices.length > 0 ? (
               indices.map((idx) => {
                 const isPos = idx.changePercent >= 0;
@@ -113,8 +113,8 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                 return (
                   <div key={idx.symbol} className="flex items-center gap-2">
                     <span className="font-medium text-slate-400">{cleanName}</span>
-                    <span className="text-slate-200">{idx.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
-                    <span className={`flex items-center text-[11px] font-semibold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <span className="text-slate-700">{idx.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                    <span className={`flex items-center text-[11px] font-semibold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {isPos ? <ArrowUpRight className="h-3 w-3 mr-0.5" /> : <ArrowDownRight className="h-3 w-3 mr-0.5" />}
                       {isPos ? '+' : ''}{idx.changePercent.toFixed(2)}%
                     </span>
@@ -122,7 +122,7 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                 );
               })
             ) : (
-              <div className="flex items-center gap-6 text-slate-500">
+              <div className="flex items-center gap-6 text-slate-400">
                 <span>S&P 500: 5,864.6 (+0.40%)</span>
                 <span>NASDAQ: 18,374.8 (+0.63%)</span>
                 <span>DOW: 43,275.9 (+0.09%)</span>
@@ -138,10 +138,10 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                 <button
                   key={t}
                   onClick={() => onSelectSymbol(t)}
-                  className={`px-2 py-0.5 text-[11px] font-mono rounded transition-colors ${
+                  className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors tabular-nums ${
                     selectedSymbol === t
-                      ? 'bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/40'
-                      : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 hover:bg-slate-700/60'
+                      ? 'bg-slate-900 text-white font-semibold border-slate-900'
+                      : 'bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300 border-slate-200'
                   }`}
                 >
                   {t}
@@ -156,15 +156,15 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 gap-4">
         {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 shadow-lg shadow-cyan-500/20">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900">
             <TrendingUp className="h-5 w-5 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tracking-tight text-white font-sans">
-                Apex<span className="text-cyan-400">Market</span>
+              <span className="text-lg font-bold tracking-tight text-slate-900 font-sans">
+                Apex<span className="text-slate-400">Market</span>
               </span>
-              <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-400 border border-cyan-500/20">
+              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200">
                 PRO 2.0
               </span>
             </div>
@@ -188,10 +188,10 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                   setSearchResults([]);
                 }
               }}
-              className="w-full rounded-lg border border-slate-700/80 bg-slate-900/90 pl-9 pr-20 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none transition focus:border-cyan-500/60 focus:ring-2 focus:ring-cyan-500/20 font-mono"
+              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-20 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 font-mono"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 border border-slate-700">
+              <span className="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 border border-slate-200">
                 ↵ Enter
               </span>
             </div>
@@ -199,7 +199,7 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
 
           {/* Autocomplete Dropdown */}
           {searchResults.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-lg border border-slate-700 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur-xl">
+            <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-2.5 py-1">
                 Matching Symbols
               </div>
@@ -211,13 +211,13 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                     setSearchQuery('');
                     setSearchResults([]);
                   }}
-                  className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-slate-800/80 transition-colors"
+                  className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-cyan-400">{item.symbol}</span>
-                    <span className="text-xs text-slate-300 truncate max-w-[220px]">{item.name}</span>
+                    <span className="font-mono font-bold text-slate-900">{item.symbol}</span>
+                    <span className="text-xs text-slate-500 truncate max-w-[220px]">{item.name}</span>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-500 uppercase">Equity</span>
+                  <span className="text-[10px] font-mono text-slate-400 uppercase">Equity</span>
                 </button>
               ))}
             </div>
@@ -231,24 +231,24 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
               onClick={onOpenAiModal}
               id="btn-ai-copilot"
               type="button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-cyan-500/20 to-indigo-500/20 hover:from-cyan-500/30 hover:to-indigo-500/30 text-cyan-300 border border-cyan-500/30 text-xs font-mono font-bold transition shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-medium transition"
               title="Configure LLMs and Deep Financial AI"
             >
-              <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+              <Sparkles className="h-3.5 w-3.5 text-slate-400" />
               <span>AI Models</span>
             </button>
           )}
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/70">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-900">
             <span className="text-xs text-slate-400">Active:</span>
-            <span className="font-mono font-bold text-sm text-cyan-300 tracking-wide">{selectedSymbol}</span>
+            <span className="font-mono font-bold text-sm text-white tracking-wide">{selectedSymbol}</span>
           </div>
         </div>
       </div>
 
       {/* Primary Feature Tabs */}
       <div className="mx-auto max-w-7xl px-4">
-        <nav className="flex space-x-1 overflow-x-auto no-scrollbar border-t border-slate-800/60 pt-1 pb-1">
+        <nav className="flex space-x-1 overflow-x-auto no-scrollbar border-t border-slate-100 pt-1.5 pb-1.5">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -260,11 +260,11 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                 onClick={() => setActiveTab(item.id)}
                 className={`flex items-center gap-2 whitespace-nowrap px-3.5 py-2 text-xs font-medium rounded-lg cursor-pointer transition-all ${
                   isActive
-                    ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                <Icon className={`h-4 w-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
+                <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                 <span>{item.label}</span>
               </button>
             );

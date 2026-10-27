@@ -74,10 +74,10 @@ interface AiVerdict {
 }
 
 const ACTION_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
-  BUY: { bg: 'bg-emerald-500/15 border-emerald-500/40', text: 'text-emerald-400', icon: <TrendingUp className="h-8 w-8" />, label: 'Buy' },
-  HOLD: { bg: 'bg-amber-500/15 border-amber-500/40', text: 'text-amber-400', icon: <Minus className="h-8 w-8" />, label: 'Hold' },
-  NEUTRAL: { bg: 'bg-slate-500/15 border-slate-500/40', text: 'text-slate-300', icon: <Minus className="h-8 w-8" />, label: 'Neutral' },
-  SELL: { bg: 'bg-rose-500/15 border-rose-500/40', text: 'text-rose-400', icon: <TrendingDown className="h-8 w-8" />, label: 'Sell' },
+  BUY: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-600', icon: <TrendingUp className="h-8 w-8" />, label: 'Buy' },
+  HOLD: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-600', icon: <Minus className="h-8 w-8" />, label: 'Hold' },
+  NEUTRAL: { bg: 'bg-slate-50 border-slate-200', text: 'text-slate-400', icon: <Minus className="h-8 w-8" />, label: 'Neutral' },
+  SELL: { bg: 'bg-rose-50 border-rose-200', text: 'text-rose-600', icon: <TrendingDown className="h-8 w-8" />, label: 'Sell' },
 };
 
 function pct(n?: number | null, digits = 1) {
@@ -104,27 +104,27 @@ function LevelLadder({ v }: { v: AiVerdict }) {
     <div className="mt-2 px-1">
       <div className="relative h-14">
         {/* baseline */}
-        <div className="absolute left-0 right-0 top-7 h-px bg-slate-700" />
+        <div className="absolute left-0 right-0 top-7 h-px bg-slate-100" />
         {/* stop */}
         {lv.stopLoss && (
-          <Marker label={`Stop $${lv.stopLoss.toFixed(2)}`} left={pos(lv.stopLoss)} color="text-rose-400" sub="exit if price falls here" icon={<ShieldAlert className="h-3 w-3" />} />
+          <Marker label={`Stop $${lv.stopLoss.toFixed(2)}`} left={pos(lv.stopLoss)} color="text-rose-600" sub="exit if price falls here" icon={<ShieldAlert className="h-3 w-3" />} />
         )}
         {/* supports */}
         {lv.supports.map((s, i) => (
-          <Tick key={`s${i}`} left={pos(s)} color="bg-rose-500/50" label={`Support ${s.toFixed(2)}`} tip="support" />
+          <Tick key={`s${i}`} left={pos(s)} color="bg-rose-50" label={`Support ${s.toFixed(2)}`} tip="support" />
         ))}
         {/* resistances */}
         {lv.resistances.map((r, i) => (
-          <Tick key={`r${i}`} left={pos(r)} color="bg-amber-500/50" label={`Resistance ${r.toFixed(2)}`} tip="resistance" />
+          <Tick key={`r${i}`} left={pos(r)} color="bg-amber-50" label={`Resistance ${r.toFixed(2)}`} tip="resistance" />
         ))}
         {/* current price */}
-        <Marker label={`Now $${v.price.toFixed(2)}`} left={pos(v.price)} color="text-white" sub="current price" icon={<span className="h-2 w-2 rounded-full bg-white inline-block" />} center />
+        <Marker label={`Now $${v.price.toFixed(2)}`} left={pos(v.price)} color="text-slate-900" sub="current price" icon={<span className="h-2 w-2 rounded-full bg-white inline-block" />} center />
         {/* targets */}
         {lv.target1 && (
-          <Marker label={`Target $${lv.target1.toFixed(2)}`} left={pos(lv.target1)} color="text-emerald-400" sub="first goal" icon={<Target className="h-3 w-3" />} />
+          <Marker label={`Target $${lv.target1.toFixed(2)}`} left={pos(lv.target1)} color="text-emerald-600" sub="first goal" icon={<Target className="h-3 w-3" />} />
         )}
         {lv.target2 && (
-          <Marker label={`$${lv.target2.toFixed(2)}`} left={pos(lv.target2)} color="text-emerald-400" sub="stretch goal" />
+          <Marker label={`$${lv.target2.toFixed(2)}`} left={pos(lv.target2)} color="text-emerald-600" sub="stretch goal" />
         )}
       </div>
     </div>
@@ -147,7 +147,7 @@ function Tick({ left, color, label, tip }: { left: string; color: string; label:
   return (
     <div className="absolute top-6 -translate-x-1/2 group/t" style={{ left }}>
       <span className={`block h-3 w-1.5 rounded-sm ${color}`} title={label} />
-      <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover/t:block text-[9px] text-slate-400 whitespace-nowrap">
+      <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover/t:block text-[9px] text-slate-500 whitespace-nowrap">
         {tip}
       </span>
     </div>
@@ -164,34 +164,34 @@ function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdic
     { key: 'sentiment', label: 'News sentiment', points: breakdown.sentiment.points, detail: breakdown.sentiment.detail },
     { key: 'fundamentals', label: 'Fundamental quality', points: breakdown.fundamentals.points, detail: breakdown.fundamentals.detail },
   ];
-  const ptsClass = (p: number) => (p > 0 ? 'text-emerald-400' : p < 0 ? 'text-rose-400' : 'text-slate-500');
+  const ptsClass = (p: number) => (p > 0 ? 'text-emerald-600' : p < 0 ? 'text-rose-600' : 'text-slate-500');
   return (
     <div className="glass-panel rounded-2xl p-6">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-left group">
-        <h3 className="font-bold text-white flex items-center gap-2">
-          <BrainCircuit className="h-4 w-4 text-cyan-400" /> Why this verdict?
+        <h3 className="font-bold text-slate-900 flex items-center gap-2">
+          <BrainCircuit className="h-4 w-4 text-cyan-600" /> Why this verdict?
           <span className="text-[10px] font-normal text-slate-500 hidden sm:inline">— the receipts behind every point</span>
         </h3>
         <span className="flex items-center gap-2">
           <span className={`text-xs font-semibold ${ptsClass(total)}`}>{total > 0 ? '+' : ''}{total} score</span>
-          {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500 group-hover:text-cyan-300" />}
+          {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500 group-hover:text-cyan-700" />}
         </span>
       </button>
       {open && (
         <div className="mt-4 space-y-3">
           {rows.map((r) => (
-            <div key={r.key} className="flex items-start gap-3 bg-slate-900/40 border border-slate-800 rounded-xl p-3">
-              <span className={`shrink-0 min-w-[52px] text-center text-xs font-bold rounded-lg px-2 py-1 ${r.points > 0 ? 'bg-emerald-500/15 text-emerald-400' : r.points < 0 ? 'bg-rose-500/15 text-rose-400' : 'bg-slate-700/40 text-slate-400'}`}>
+            <div key={r.key} className="flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3">
+              <span className={`shrink-0 min-w-[52px] text-center text-xs font-bold rounded-lg px-2 py-1 ${r.points > 0 ? 'bg-emerald-50 text-emerald-600' : r.points < 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
                 {r.points > 0 ? '+' : ''}{r.points}
               </span>
               <div className="min-w-0">
-                <div className="text-xs font-semibold text-slate-200">{r.label}</div>
-                <div className="text-xs text-slate-400 mt-0.5">{r.detail}</div>
+                <div className="text-xs font-semibold text-slate-400">{r.label}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{r.detail}</div>
                 {r.key === 'fundamentals' && breakdown.fundamentals.factors.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {breakdown.fundamentals.factors.map((f) => (
                       <div key={f.name} className="flex items-center gap-2 text-[11px] text-slate-500">
-                        <span className="text-slate-400">{f.name}</span>
+                        <span className="text-slate-500">{f.name}</span>
                         <span className="text-slate-500">{f.value}</span>
                         <span className={ptsClass(f.points)}>{f.points > 0 ? '+' : ''}{f.points}</span>
                       </div>
@@ -202,10 +202,10 @@ function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdic
             </div>
           ))}
           {breakdown.bearishVotes && (
-            <div className="text-xs bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 text-rose-200">
-              <strong className="text-rose-300">SELL confirmation gate:</strong> {breakdown.bearishVotes.count} of 2+ bearish votes
+            <div className="text-xs bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-200">
+              <strong className="text-rose-600">SELL confirmation gate:</strong> {breakdown.bearishVotes.count} of 2+ bearish votes
               {breakdown.bearishVotes.count >= 2 ? ' — confirmed' : ' — not enough, downgraded to HOLD (avoids value traps)'}.
-              {breakdown.bearishVotes.reasons.length > 0 && <div className="mt-1 text-rose-300/80">{breakdown.bearishVotes.reasons.join(' · ')}</div>}
+              {breakdown.bearishVotes.reasons.length > 0 && <div className="mt-1 text-rose-600/80">{breakdown.bearishVotes.reasons.join(' · ')}</div>}
             </div>
           )}
           <div className="text-[11px] text-slate-500">
@@ -347,8 +347,8 @@ export function VerdictView({ symbol }: { symbol: string }) {
   if (loading) {
     return (
       <div className="glass-panel rounded-2xl p-10 text-center">
-        <BrainCircuit className="h-10 w-10 mx-auto text-cyan-400 animate-pulse mb-4" />
-        <div className="text-white font-semibold">AI is researching {symbol}…</div>
+        <BrainCircuit className="h-10 w-10 mx-auto text-cyan-600 animate-pulse mb-4" />
+        <div className="text-slate-900 font-semibold">AI is researching {symbol}…</div>
         <div className="text-xs text-slate-500 mt-1">Reading SEC filings, charts and news, then forming a verdict</div>
       </div>
     );
@@ -357,9 +357,9 @@ export function VerdictView({ symbol }: { symbol: string }) {
   if (error || !v) {
     return (
       <div className="glass-panel rounded-2xl p-10 text-center">
-        <AlertTriangle className="h-8 w-8 mx-auto text-amber-400 mb-3" />
-        <div className="text-white">{error ?? 'No verdict available'}</div>
-        <button onClick={load} className="mt-4 px-4 py-2 rounded-lg bg-cyan-500/20 text-cyan-300 text-sm hover:bg-cyan-500/30">
+        <AlertTriangle className="h-8 w-8 mx-auto text-amber-600 mb-3" />
+        <div className="text-slate-900">{error ?? 'No verdict available'}</div>
+        <button onClick={load} className="mt-4 px-4 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-sm hover:bg-cyan-50">
           Try again
         </button>
       </div>
@@ -374,10 +374,10 @@ export function VerdictView({ symbol }: { symbol: string }) {
     <div className="space-y-5">
       {/* Earnings-proximity banner */}
       {ed && (
-        <div className="flex items-start gap-2 text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+        <div className="flex items-start gap-2 text-xs text-amber-200 bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
           <span>
-            <strong className="text-amber-300">Earnings {ed.daysUntil! <= 0 ? 'is today/imminent' : `in ${ed.daysUntil} day${ed.daysUntil === 1 ? '' : 's'}`}</strong>
+            <strong className="text-amber-600">Earnings {ed.daysUntil! <= 0 ? 'is today/imminent' : `in ${ed.daysUntil} day${ed.daysUntil === 1 ? '' : 's'}`}</strong>
             {ed.earningsDate && <> ({new Date(ed.earningsDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })})</>}
             {' — '}verdicts can shift sharply around earnings reports. Treat this rating with extra caution until the numbers are out.
           </span>
@@ -387,12 +387,12 @@ export function VerdictView({ symbol }: { symbol: string }) {
       <div className="glass-panel rounded-2xl p-6">
         <div className="flex flex-col lg:flex-row lg:items-center gap-6">
           <div className="flex-1">
-            <div className="flex items-center gap-2 text-xs text-slate-400">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
               <button
                 onClick={togglePin}
                 disabled={pinBusy}
                 title={pinned ? `Unpin the ${v.symbol} analysis` : `Pin this analysis — you're holding ${v.symbol} and want thesis-break alerts`}
-                className={`shrink-0 transition ${pinned ? 'text-indigo-400' : 'text-slate-600 hover:text-indigo-300'} disabled:opacity-50`}
+                className={`shrink-0 transition ${pinned ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'} disabled:opacity-50`}
               >
                 <Pin className={`h-5 w-5 ${pinned ? 'fill-indigo-400' : ''}`} />
               </button>
@@ -400,24 +400,24 @@ export function VerdictView({ symbol }: { symbol: string }) {
                 onClick={toggleWatch}
                 disabled={watchBusy}
                 title={watched ? `Remove ${v.symbol} from watchlist` : `Track ${v.symbol} — get alerted when the verdict changes`}
-                className={`shrink-0 transition ${watched ? 'text-amber-400' : 'text-slate-600 hover:text-amber-300'} disabled:opacity-50`}
+                className={`shrink-0 transition ${watched ? 'text-amber-600' : 'text-slate-400 hover:text-amber-600'} disabled:opacity-50`}
               >
                 <Star className={`h-5 w-5 ${watched ? 'fill-amber-400' : ''}`} />
               </button>
-              <span className="font-bold text-cyan-300 text-sm">{v.symbol}</span>
+              <span className="font-bold text-cyan-700 text-sm">{v.symbol}</span>
               <span>·</span>
               <span>{v.name}</span>
-              {watched && <span className="text-[10px] text-amber-400/80">tracked · alerts on</span>}
-              {pinned && <span className="text-[10px] text-indigo-400/90">📌 holding · thesis-break alerts on</span>}
+              {watched && <span className="text-[10px] text-amber-600/80">tracked · alerts on</span>}
+              {pinned && <span className="text-[10px] text-indigo-600/90">📌 holding · thesis-break alerts on</span>}
             </div>
             <div className="flex items-baseline gap-3 mt-1">
-              <span className="text-4xl font-bold text-white">${v.price.toFixed(2)}</span>
-              <span className="text-sm text-slate-400">
+              <span className="text-4xl font-bold text-slate-900">${v.price.toFixed(2)}</span>
+              <span className="text-sm text-slate-500">
                 · {v.technicals.trend === 'up' ? 'trending up' : v.technicals.trend === 'down' ? 'trending down' : 'moving sideways'}
                 <MetricHelp term="rsi14" />
               </span>
             </div>
-            <p className="mt-3 text-sm text-slate-300 max-w-xl leading-relaxed">{v.verdict.summary}</p>
+            <p className="mt-3 text-sm text-slate-400 max-w-xl leading-relaxed">{v.verdict.summary}</p>
           </div>
 
           {/* Verdict badge + confidence */}
@@ -425,32 +425,32 @@ export function VerdictView({ symbol }: { symbol: string }) {
             <div className={`flex items-center justify-center gap-2 ${style.text}`}>{style.icon}</div>
             <div className={`text-3xl font-bold mt-1 ${style.text}`}>{style.label}</div>
             <div className="mt-3">
-              <div className="text-[10px] uppercase tracking-wider text-slate-400">AI confidence</div>
-              <div className="text-xl font-bold text-white">{Math.round(v.verdict.confidence)}%</div>
-              <div className="h-1.5 rounded-full bg-slate-800 mt-1.5 overflow-hidden">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">AI confidence</div>
+              <div className="text-xl font-bold text-slate-900">{Math.round(v.verdict.confidence)}%</div>
+              <div className="h-1.5 rounded-full bg-slate-50 mt-1.5 overflow-hidden">
                 <div className="h-full bg-cyan-400 rounded-full" style={{ width: `${v.verdict.confidence}%` }} />
               </div>
             </div>
-            <div className="mt-2 text-[11px] text-slate-400 capitalize">Horizon: {v.verdict.horizon}-term</div>
+            <div className="mt-2 text-[11px] text-slate-500 capitalize">Horizon: {v.verdict.horizon}-term</div>
             {v.tradeWindow && (
-              <div className="mt-1.5 text-[11px] text-slate-400" title={`This analysis is meant to be acted on within ${v.tradeWindow.holdingDays} trading days. After that, re-analyze before acting on it.`}>
+              <div className="mt-1.5 text-[11px] text-slate-500" title={`This analysis is meant to be acted on within ${v.tradeWindow.holdingDays} trading days. After that, re-analyze before acting on it.`}>
                 <CalendarClock className="h-3 w-3 inline mr-1 text-slate-500" />
-                Valid until <span className="text-slate-300 font-semibold">{new Date(v.tradeWindow.validUntil + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                <span className="text-slate-600"> · {v.tradeWindow.note}</span>
+                Valid until <span className="text-slate-400 font-semibold">{new Date(v.tradeWindow.validUntil + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span className="text-slate-400"> · {v.tradeWindow.note}</span>
               </div>
             )}
             {v.ensemble && v.ensemble.consensus && (
               <div
-                className="mt-3 pt-3 border-t border-slate-700/60"
+                className="mt-3 pt-3 border-t border-slate-300"
                 title={v.ensemble.votes.map((vt) => `${vt.model.split('/')[0]}: ${vt.verdict ?? 'error'}`).join(' · ')}
               >
-                <div className="text-[10px] uppercase tracking-wider text-slate-400">Model ensemble</div>
-                <div className={`text-xs font-semibold ${v.ensemble.agreeing === v.ensemble.of ? 'text-emerald-400' : 'text-amber-400'}`}>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500">Model ensemble</div>
+                <div className={`text-xs font-semibold ${v.ensemble.agreeing === v.ensemble.of ? 'text-emerald-600' : 'text-amber-600'}`}>
                   {v.ensemble.agreeing}/{v.ensemble.of} models say {v.ensemble.consensus}
                 </div>
                 <div className="flex justify-center gap-1 mt-1.5">
                   {v.ensemble.votes.map((vt, i) => {
-                    const c = vt.verdict === 'BUY' ? 'bg-emerald-400' : vt.verdict === 'SELL' ? 'bg-rose-400' : vt.verdict ? 'bg-amber-400' : 'bg-slate-600';
+                    const c = vt.verdict === 'BUY' ? 'bg-emerald-400' : vt.verdict === 'SELL' ? 'bg-rose-400' : vt.verdict ? 'bg-amber-400' : 'bg-slate-200';
                     return <span key={i} className={`h-1.5 w-5 rounded-full ${c}`} title={`${vt.model}: ${vt.verdict ?? vt.error ?? '?'}`} />;
                   })}
                 </div>
@@ -464,10 +464,10 @@ export function VerdictView({ symbol }: { symbol: string }) {
 
       {/* Levels grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <LevelCard label="Target" help="price" value={v.levels.target1} color="text-emerald-400" sub="where the AI thinks it can go" />
-        <LevelCard label="Stop Loss" help="price" value={v.levels.stopLoss} color="text-rose-400" sub="exit point to cap the loss" />
-        <LevelCard label="Support" help="price" value={v.levels.supports[0]} color="text-rose-300" sub="price tends to bounce here" />
-        <LevelCard label="Resistance" help="price" value={v.levels.resistances[0]} color="text-amber-300" sub="price tends to stall here" />
+        <LevelCard label="Target" help="price" value={v.levels.target1} color="text-emerald-600" sub="where the AI thinks it can go" />
+        <LevelCard label="Stop Loss" help="price" value={v.levels.stopLoss} color="text-rose-600" sub="exit point to cap the loss" />
+        <LevelCard label="Support" help="price" value={v.levels.supports[0]} color="text-rose-600" sub="price tends to bounce here" />
+        <LevelCard label="Resistance" help="price" value={v.levels.resistances[0]} color="text-amber-600" sub="price tends to stall here" />
       </div>
 
       {/* Score drill-down — the receipts behind the verdict */}
@@ -475,21 +475,21 @@ export function VerdictView({ symbol }: { symbol: string }) {
 
       {/* Strategy */}
       <div className="glass-panel rounded-2xl p-6">
-        <h3 className="font-bold text-white flex items-center gap-2">
-          <Target className="h-4 w-4 text-cyan-400" /> Suggested strategy
+        <h3 className="font-bold text-slate-900 flex items-center gap-2">
+          <Target className="h-4 w-4 text-cyan-600" /> Suggested strategy
         </h3>
-        <p className="text-sm text-slate-300 mt-2">{v.strategy.headline}</p>
+        <p className="text-sm text-slate-400 mt-2">{v.strategy.headline}</p>
         {v.strategy.entry && (
-          <div className="mt-3 text-sm"><span className="text-slate-400">Entry zone:</span> <span className="text-white">{v.strategy.entry}</span></div>
+          <div className="mt-3 text-sm"><span className="text-slate-500">Entry zone:</span> <span className="text-slate-900">{v.strategy.entry}</span></div>
         )}
         <ul className="mt-3 space-y-2">
           {v.strategy.plan.map((p, i) => (
-            <li key={i} className="flex gap-2 text-sm text-slate-300">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" /> {p}
+            <li key={i} className="flex gap-2 text-sm text-slate-400">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" /> {p}
             </li>
           ))}
         </ul>
-        <div className="mt-4 flex gap-2 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+        <div className="mt-4 flex gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
           <AlertTriangle className="h-4 w-4 shrink-0" /> <span>{v.strategy.riskNote}</span>
         </div>
       </div>
@@ -497,16 +497,16 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {/* Drivers: fundamentals / technicals / news */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="glass-panel rounded-2xl p-6">
-          <h3 className="font-bold text-white flex items-center gap-2 mb-3">
-            <ChevronUp className="h-4 w-4 text-emerald-400" /> What's working
+          <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
+            <ChevronUp className="h-4 w-4 text-emerald-600" /> What's working
           </h3>
           <ul className="space-y-2">
             {(v.drivers.bullish.length ? v.drivers.bullish : ['No strong positives detected from current data.']).map((b, i) => (
-              <li key={i} className="text-sm text-slate-300 flex gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />{b}</li>
+              <li key={i} className="text-sm text-slate-400 flex gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />{b}</li>
             ))}
           </ul>
           {v.fundamentals && (
-            <div className="mt-4 pt-4 border-t border-slate-800 grid grid-cols-2 gap-3 text-xs">
+            <div className="mt-4 pt-4 border-t border-slate-200 grid grid-cols-2 gap-3 text-xs">
               <FundStat label="Sales growth" help="revenueGrowthYoY" value={pct(v.fundamentals.revenueGrowthYoY)} />
               <FundStat label="Profit margin" help="netMargin" value={v.fundamentals.netMargin != null ? `${v.fundamentals.netMargin.toFixed(1)}%` : '—'} />
               <FundStat label="Efficiency (ROE)" help="roe" value={v.fundamentals.roe != null ? `${v.fundamentals.roe.toFixed(1)}%` : '—'} />
@@ -517,7 +517,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
                   href={`https://www.sec.gov/edgar/browse/?CIK=${encodeURIComponent(v.symbol)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-cyan-400 hover:text-cyan-300 underline"
+                  className="text-cyan-600 hover:text-cyan-700 underline"
                 >
                   open the filings on SEC EDGAR ↗
                 </a>
@@ -528,12 +528,12 @@ export function VerdictView({ symbol }: { symbol: string }) {
         </div>
 
         <div className="glass-panel rounded-2xl p-6">
-          <h3 className="font-bold text-white flex items-center gap-2 mb-3">
-            <ChevronDown className="h-4 w-4 text-rose-400" /> What's worrying
+          <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
+            <ChevronDown className="h-4 w-4 text-rose-600" /> What's worrying
           </h3>
           <ul className="space-y-2">
             {(v.drivers.bearish.length ? v.drivers.bearish : ['No strong negatives detected from current data.']).map((b, i) => (
-              <li key={i} className="text-sm text-slate-300 flex gap-2"><AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />{b}</li>
+              <li key={i} className="text-sm text-slate-400 flex gap-2"><AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />{b}</li>
             ))}
           </ul>
           <Receipts sentiment="bearish" news={v.drivers.newsItems} technicals={v.technicals} levels={v.levels} />
@@ -543,31 +543,31 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {/* News */}
       {v.drivers.newsItems?.length > 0 && (
         <div className="glass-panel rounded-2xl p-6">
-          <h3 className="font-bold text-white flex items-center gap-2 mb-3">
-            <Newspaper className="h-4 w-4 text-cyan-400" /> News the AI weighed
+          <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
+            <Newspaper className="h-4 w-4 text-cyan-600" /> News the AI weighed
             <MetricHelp term="sentimentScore" />
           </h3>
           <div className="space-y-2">
             {v.drivers.newsItems.map((n, i) => (
-              <div key={i} className="flex items-start gap-3 text-sm py-1.5 border-b border-slate-800/60 last:border-0">
+              <div key={i} className="flex items-start gap-3 text-sm py-1.5 border-b border-slate-200 last:border-0">
                 <span
                   className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
                     n.sentiment === 'bullish'
-                      ? 'bg-emerald-500/15 text-emerald-400'
+                      ? 'bg-emerald-50 text-emerald-600'
                       : n.sentiment === 'bearish'
-                        ? 'bg-rose-500/15 text-rose-400'
-                        : 'bg-slate-500/15 text-slate-400'
+                        ? 'bg-rose-50 text-rose-600'
+                        : 'bg-slate-50 text-slate-500'
                   }`}
                 >
                   {n.sentiment}
                 </span>
                 <div className="min-w-0">
                   {n.url ? (
-                    <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-200 hover:text-cyan-300 line-clamp-2">
+                    <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-cyan-700 line-clamp-2">
                       {n.title}
                     </a>
                   ) : (
-                    <span className="text-slate-200 line-clamp-2">{n.title}</span>
+                    <span className="text-slate-400 line-clamp-2">{n.title}</span>
                   )}
                   <span className="text-[10px] text-slate-500 ml-2">{n.source}</span>
                 </div>
@@ -583,17 +583,17 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {/* AI narrative (only when an LLM key is configured) */}
       {v.aiNarrative && (
         <div className="glass-panel rounded-2xl p-6">
-          <h3 className="font-bold text-white flex items-center gap-2 mb-3">
-            <BrainCircuit className="h-4 w-4 text-cyan-400" /> AI deep analysis
+          <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
+            <BrainCircuit className="h-4 w-4 text-cyan-600" /> AI deep analysis
           </h3>
-          <div className="text-sm text-slate-300 leading-relaxed space-y-2">
+          <div className="text-sm text-slate-400 leading-relaxed space-y-2">
             {v.aiNarrative.split('\n').map((line, i) => {
               const t = line.trim();
               if (!t) return <div key={i} className="h-1" />;
               // Headings (##, #)
               if (/^#{1,3}\s/.test(t))
                 return (
-                  <h4 key={i} className="font-bold text-white pt-2 pb-1">
+                  <h4 key={i} className="font-bold text-slate-900 pt-2 pb-1">
                     {t.replace(/^#{1,3}\s*/, '')}
                   </h4>
                 );
@@ -603,7 +603,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
                 <p key={i}>
                   {parts.map((part, j) =>
                     part.startsWith('**') && part.endsWith('**') ? (
-                      <strong key={j} className="text-white font-semibold">{part.slice(2, -2)}</strong>
+                      <strong key={j} className="text-slate-900 font-semibold">{part.slice(2, -2)}</strong>
                     ) : (
                       <span key={j}>{part}</span>
                     )
@@ -651,22 +651,22 @@ function ScoreEvolution({ symbol, currentAction, currentConfidence }: { symbol: 
   const y = (c: number) => H - PAD - (c / (max - min)) * (H - 2 * PAD);
   const confPts = pts.filter((p) => p.confidence != null);
   const line = confPts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(confPts.length === pts.length ? pts.indexOf(p) : i)},${y(p.confidence!)}`).join(' ');
-  const actionColor = (a: string) => (a === 'BUY' ? '#34d399' : a === 'SELL' ? '#fb7185' : '#fbbf24');
+  const actionColor = (a: string) => (a === 'BUY' ? '#059669' : a === 'SELL' ? '#e11d48' : '#d97706');
   const first = pts[0], last = pts[pts.length - 1];
   const changed = pts.filter((p, i) => i > 0 && p.action !== pts[i - 1].action).length;
 
   return (
     <div className="glass-panel rounded-2xl p-6">
-      <h3 className="font-bold text-white flex items-center gap-2 mb-1">
-        <TrendingUp className="h-4 w-4 text-cyan-400" /> Score evolution
+      <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-1">
+        <TrendingUp className="h-4 w-4 text-cyan-600" /> Score evolution
       </h3>
       <p className="text-xs text-slate-500 mb-3">
         How the AI has rated {symbol} over its last {pts.length} checks · {changed} rating change{changed === 1 ? '' : 's'} recorded
       </p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[90px]">
-        <line x1={PAD} y1={y(35)} x2={W - PAD} y2={y(35)} stroke="#10b98155" strokeDasharray="4 4" strokeWidth="1" />
-        <text x={W - PAD} y={y(35) - 3} textAnchor="end" fontSize="8" fill="#10b98199">BUY threshold (35)</text>
-        <path d={line} fill="none" stroke="#38bdf8" strokeWidth="1.5" />
+        <line x1={PAD} y1={y(35)} x2={W - PAD} y2={y(35)} stroke="#05966966" strokeDasharray="4 4" strokeWidth="1" />
+        <text x={W - PAD} y={y(35) - 3} textAnchor="end" fontSize="8" fill="#059669">BUY threshold (35)</text>
+        <path d={line} fill="none" stroke="#0284c7" strokeWidth="1.5" />
         {confPts.map((p, i) => (
           <circle
             key={i}
@@ -700,10 +700,10 @@ function Receipts({ sentiment, news, technicals, levels }: {
   );
 
   return (
-    <div className="mt-4 pt-4 border-t border-slate-800">
+    <div className="mt-4 pt-4 border-t border-slate-200">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5"
+        className="text-xs text-cyan-600 hover:text-cyan-700 flex items-center gap-1.5"
       >
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
         {open ? 'Hide the receipts' : `Show the receipts (${relevant.length} headline${relevant.length === 1 ? '' : 's'} + indicator math)`}
@@ -719,17 +719,17 @@ function Receipts({ sentiment, news, technicals, levels }: {
               <div className="space-y-1.5">
                 {relevant.map((n, i) => (
                   <div key={i} className="flex items-baseline gap-2">
-                    <span className={`shrink-0 font-mono ${sentiment === 'bullish' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    <span className={`shrink-0 font-mono ${sentiment === 'bullish' ? 'text-emerald-600' : 'text-rose-600'}`}>
                       {n.score > 0 ? '+' : ''}{n.score.toFixed(1)}
                     </span>
                     {n.url ? (
-                      <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-300 hover:text-cyan-300 line-clamp-1">
+                      <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-cyan-700 line-clamp-1">
                         {n.title}
                       </a>
                     ) : (
-                      <span className="text-slate-300 line-clamp-1">{n.title}</span>
+                      <span className="text-slate-400 line-clamp-1">{n.title}</span>
                     )}
-                    <span className="shrink-0 text-slate-600">{n.source}</span>
+                    <span className="shrink-0 text-slate-400">{n.source}</span>
                   </div>
                 ))}
               </div>
@@ -738,7 +738,7 @@ function Receipts({ sentiment, news, technicals, levels }: {
           {/* Indicator math */}
           <div>
             <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">Indicator math behind this panel</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-300">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400">
               <span className="text-slate-500">Trend</span>
               <span>
                 {technicals.trend === 'up'
@@ -754,7 +754,7 @@ function Receipts({ sentiment, news, technicals, levels }: {
               {levels.sma20 != null && (<><span className="text-slate-500">SMA 20</span><span>${levels.sma20.toFixed(2)}</span></>)}
               {levels.atr14 != null && (<><span className="text-slate-500">ATR(14)</span><span>${levels.atr14.toFixed(2)} — typical daily range</span></>)}
             </div>
-            <div className="mt-2 text-[10px] text-slate-600">
+            <div className="mt-2 text-[10px] text-slate-400">
               Scoring: trend contributes ±25, RSI position ±15, news sentiment ±25, fundamentals ±35 → final score −100..100.
               BUY needs ≥35; SELL needs a low score <em>plus</em> two independent bearish confirmations.
             </div>
@@ -768,10 +768,10 @@ function Receipts({ sentiment, news, technicals, levels }: {
 function LevelCard({ label, value, color, sub, help }: { label: string; value?: number; color: string; sub: string; help: string }) {
   return (
     <div className="glass-panel rounded-xl p-4">
-      <div className="text-[11px] uppercase tracking-wider text-slate-400 flex items-center gap-1">
+      <div className="text-[11px] uppercase tracking-wider text-slate-500 flex items-center gap-1">
         {label} <MetricHelp term={help} />
       </div>
-      <div className={`text-2xl font-bold mt-1 ${value != null ? color : 'text-slate-600'}`}>
+      <div className={`text-2xl font-bold mt-1 ${value != null ? color : 'text-slate-400'}`}>
         {value != null ? `$${value.toFixed(2)}` : '—'}
       </div>
       <div className="text-[10px] text-slate-500 mt-0.5">{sub}</div>
@@ -783,7 +783,7 @@ function FundStat({ label, value, help }: { label: string; value: string; help: 
   return (
     <div>
       <div className="text-slate-500 flex items-center gap-1">{label} <MetricHelp term={help} /></div>
-      <div className="text-slate-200 font-semibold">{value}</div>
+      <div className="text-slate-400 font-semibold">{value}</div>
     </div>
   );
 }

@@ -48,14 +48,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#070b12] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
-      {/* Dynamic Background Glows */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-cyan-600/10 blur-[130px]" />
-        <div className="absolute top-1/3 -right-40 h-[600px] w-[600px] rounded-full bg-blue-600/10 blur-[150px]" />
-        <div className="absolute -bottom-40 left-1/3 h-[500px] w-[500px] rounded-full bg-indigo-600/10 blur-[140px]" />
-      </div>
-
+    <div className="min-h-screen bg-[#fafafa] text-slate-900 flex flex-col font-sans selection:bg-cyan-100 selection:text-cyan-900">
       {/* Navigation Header */}
       <Navbar
         activeTab={activeTab}
@@ -150,15 +143,15 @@ export default function Home() {
         )}
       </main>
 
-      {/* Global Terminal Footer */}
-      <footer className="relative z-10 border-t border-slate-800/80 bg-[#060a10]/90 py-4 px-6 text-xs font-mono text-slate-500">
+      {/* Global Footer */}
+      <footer className="relative z-10 border-t border-slate-200 bg-white py-4 px-6 text-xs font-mono text-slate-400">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <span className="flex items-center gap-1.5 text-emerald-400">
+            <span className="flex items-center gap-1.5 text-emerald-600">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Services Healthy (9/9 Active)</span>
             </span>
-            <span className="text-slate-700">|</span>
+            <span className="text-slate-300">|</span>
             <span>AI Master Prediction • Market Data Engine • Financial Modeling • Sentiment AI • SEC EDGAR • Quant Backtester</span>
           </div>
           <div>

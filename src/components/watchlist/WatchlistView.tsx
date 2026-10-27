@@ -22,10 +22,10 @@ interface AlertItem {
 }
 
 const ACTION_STYLES: Record<string, { text: string; bg: string; label: string; Icon: any }> = {
-  BUY: { text: 'text-emerald-400', bg: 'bg-emerald-500/15 border-emerald-500/40', label: 'Buy', Icon: TrendingUp },
-  SELL: { text: 'text-rose-400', bg: 'bg-rose-500/15 border-rose-500/40', label: 'Sell', Icon: TrendingDown },
-  HOLD: { text: 'text-amber-400', bg: 'bg-amber-500/15 border-amber-500/40', label: 'Hold', Icon: Minus },
-  NEUTRAL: { text: 'text-slate-300', bg: 'bg-slate-500/15 border-slate-500/40', label: 'Neutral', Icon: Minus },
+  BUY: { text: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200', label: 'Buy', Icon: TrendingUp },
+  SELL: { text: 'text-rose-600', bg: 'bg-rose-50 border-rose-200', label: 'Sell', Icon: TrendingDown },
+  HOLD: { text: 'text-amber-600', bg: 'bg-amber-50 border-amber-200', label: 'Hold', Icon: Minus },
+  NEUTRAL: { text: 'text-slate-400', bg: 'bg-slate-50 border-slate-200', label: 'Neutral', Icon: Minus },
 };
 
 function ActionBadge({ action }: { action: string }) {
@@ -162,22 +162,22 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
       <div className="glass-panel rounded-2xl p-6">
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Star className="h-6 w-6 text-amber-400" /> Your Watchlist
+            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+              <Star className="h-6 w-6 text-amber-600" /> Your Watchlist
               {unseenCount > 0 && (
-                <span className="ml-2 inline-flex items-center rounded-full bg-cyan-500/20 border border-cyan-500/40 px-2.5 py-0.5 text-xs font-bold text-cyan-300">
+                <span className="ml-2 inline-flex items-center rounded-full bg-cyan-50 border border-cyan-200 px-2.5 py-0.5 text-xs font-bold text-cyan-700">
                   {unseenCount} new alert{unseenCount > 1 ? 's' : ''}
                 </span>
               )}
             </h1>
-            <p className="text-sm text-slate-400 mt-1">
+            <p className="text-sm text-slate-500 mt-1">
               Track companies you care about. The AI re-checks every verdict every 5 minutes and flags you the moment a rating changes.
             </p>
           </div>
           <button
             onClick={checkNow}
             disabled={checking || symbols.length === 0}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 hover:border-cyan-500/50 hover:text-cyan-300 text-slate-300 text-sm transition disabled:opacity-40"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 hover:border-cyan-200 hover:text-cyan-700 text-slate-400 text-sm transition disabled:opacity-40"
           >
             <RefreshCw className={`h-4 w-4 ${checking ? 'animate-spin' : ''}`} />
             {checking ? 'Checking verdicts…' : 'Check now'}
@@ -192,41 +192,41 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
             onKeyDown={(e) => e.key === 'Enter' && addSymbol()}
             placeholder="Add a ticker — e.g. TSLA"
             maxLength={10}
-            className="flex-1 bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/60"
+            className="flex-1 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-cyan-200"
           />
           <button
             onClick={addSymbol}
             disabled={adding || !newSymbol.trim()}
-            className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-sm font-semibold hover:bg-cyan-500/30 transition disabled:opacity-40"
+            className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-700 text-sm font-semibold hover:bg-cyan-50 transition disabled:opacity-40"
           >
             <Plus className="h-4 w-4" /> Add
           </button>
         </div>
-        {error && <p className="mt-2 text-xs text-rose-400">{error}</p>}
+        {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
       </div>
 
       {loading ? (
-        <div className="glass-panel rounded-2xl p-10 text-center text-slate-400">Loading your watchlist…</div>
+        <div className="glass-panel rounded-2xl p-10 text-center text-slate-500">Loading your watchlist…</div>
       ) : (
         <>
           {/* Watched symbols grid */}
           <div>
-            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Tracked companies ({symbols.length})</h2>
+            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Tracked companies ({symbols.length})</h2>
             {symbols.length === 0 ? (
               <div className="glass-panel rounded-2xl p-10 text-center text-slate-500">
-                <Star className="h-8 w-8 mx-auto mb-3 text-slate-700" />
+                <Star className="h-8 w-8 mx-auto mb-3 text-slate-400" />
                 Nothing tracked yet. Add a ticker above, or hit the ☆ on any AI Verdict page.
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {symbols.map((s) => (
-                  <div key={s.symbol} className="glass-panel rounded-xl p-4 group hover:border-cyan-500/30 transition">
+                  <div key={s.symbol} className="glass-panel rounded-xl p-4 group hover:border-cyan-200 transition">
                     <div className="flex items-start justify-between">
                       <button
                         onClick={() => s.lastVerdict && onSelectSymbol(s.symbol)}
                         className="text-left"
                       >
-                        <div className="font-bold text-white text-lg">{s.symbol}</div>
+                        <div className="font-bold text-slate-900 text-lg">{s.symbol}</div>
                         {s.lastVerdict ? (
                           <div className="mt-2 flex items-center gap-2 flex-wrap">
                             <ActionBadge action={s.lastVerdict.action} />
@@ -239,7 +239,7 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                       <button
                         onClick={() => removeSymbol(s.symbol)}
                         title={`Remove ${s.symbol}`}
-                        className="opacity-0 group-hover:opacity-100 transition text-slate-600 hover:text-rose-400"
+                        className="opacity-0 group-hover:opacity-100 transition text-slate-400 hover:text-rose-600"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -254,7 +254,7 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                             return (
                               <span
                                 title={`Earnings ${e.daysUntil <= 0 ? 'imminent' : `in ${e.daysUntil} day${e.daysUntil === 1 ? '' : 's'}`} — verdicts can shift sharply around reports`}
-                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${e.daysUntil <= 7 ? 'bg-amber-500/15 text-amber-400' : 'bg-slate-700/40 text-slate-400'}`}
+                                className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${e.daysUntil <= 7 ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}
                               >
                                 <CalendarClock className="h-3 w-3" /> ER {e.daysUntil <= 0 ? 'now' : `${e.daysUntil}d`}
                               </span>
@@ -275,11 +275,11 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
           {/* Alert feed */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
                 <Bell className="h-4 w-4" /> Verdict changes
               </h2>
               {unseenCount > 0 && (
-                <button onClick={markAllSeen} className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300">
+                <button onClick={markAllSeen} className="inline-flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700">
                   <CheckCheck className="h-3.5 w-3.5" /> Mark all as seen
                 </button>
               )}
@@ -289,30 +289,30 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                 No verdict changes yet. When a tracked company's rating flips (e.g. HOLD → BUY), it lands here.
               </div>
             ) : (
-              <div className="glass-panel rounded-2xl divide-y divide-slate-800/70">
+              <div className="glass-panel rounded-2xl divide-y divide-slate-200">
                 {alerts.map((a) => (
-                  <div key={a.id} className={`p-4 flex items-center gap-4 flex-wrap ${!a.seen ? (a.kind === 'pin_at_risk' ? 'bg-rose-500/5' : 'bg-cyan-500/5') : ''}`}>
+                  <div key={a.id} className={`p-4 flex items-center gap-4 flex-wrap ${!a.seen ? (a.kind === 'pin_at_risk' ? 'bg-rose-50' : 'bg-cyan-50') : ''}`}>
                     {!a.seen && <span className={`h-2 w-2 rounded-full shrink-0 ${a.kind === 'pin_at_risk' ? 'bg-rose-400' : 'bg-cyan-400'}`} title="New" />}
-                    <button onClick={() => onSelectSymbol(a.symbol)} className="font-bold text-white hover:text-cyan-300">
+                    <button onClick={() => onSelectSymbol(a.symbol)} className="font-bold text-slate-900 hover:text-cyan-700">
                       {a.symbol}
                     </button>
                     {a.kind === 'pin_at_risk' ? (
                       <>
-                        <span className="text-xs font-semibold text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-full px-2 py-0.5">
+                        <span className="text-xs font-semibold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">
                           position at risk — still holding
                         </span>
-                        <span className="text-xs text-rose-200/80">{a.toAction}</span>
-                        <span className="text-[10px] text-slate-600">pinned as {a.fromAction}</span>
+                        <span className="text-xs text-rose-500">{a.toAction}</span>
+                        <span className="text-[10px] text-slate-400">pinned as {a.fromAction}</span>
                       </>
                     ) : (
                       <div className="flex items-center gap-2">
                         <ActionBadge action={a.fromAction} />
-                        <span className="text-slate-600">&rarr;</span>
+                        <span className="text-slate-400">&rarr;</span>
                         <ActionBadge action={a.toAction} />
                       </div>
                     )}
                     {a.price != null && <span className="text-xs text-slate-500">@ ${a.price?.toFixed(2)}{a.confidence ? ` · ${a.confidence}% conf` : ''}</span>}
-                    <span className="ml-auto text-xs text-slate-600">{timeAgo(a.createdAt)}</span>
+                    <span className="ml-auto text-xs text-slate-400">{timeAgo(a.createdAt)}</span>
                   </div>
                 ))}
               </div>

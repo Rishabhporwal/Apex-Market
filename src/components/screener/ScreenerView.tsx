@@ -127,33 +127,33 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
     <div className="space-y-6">
       {/* Presets Bar */}
       <div className="glass-panel rounded-2xl p-4 sm:p-6">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-4 mb-4">
           <div>
-            <h2 className="text-xl font-bold text-white font-sans flex items-center gap-2">
-              <Sliders className="h-5 w-5 text-cyan-400" /> Professional Multi-Variable Stock Screener
+            <h2 className="text-xl font-bold text-slate-900 font-sans flex items-center gap-2">
+              <Sliders className="h-5 w-5 text-cyan-600" /> Professional Multi-Variable Stock Screener
             </h2>
-            <p className="text-xs text-slate-400 font-mono mt-0.5">Filter across liquid US equities by valuation, technicals & AI sentiment scores</p>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">Filter across liquid US equities by valuation, technicals & AI sentiment scores</p>
           </div>
 
           <div className="flex items-center gap-2">
             {/* Simple / Advanced mode toggle */}
-            <div className="flex rounded-lg border border-slate-700 overflow-hidden text-xs font-sans">
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs font-sans">
               <button
                 onClick={() => setMode('simple')}
-                className={`px-3 py-1.5 transition ${mode === 'simple' ? 'bg-cyan-500/20 text-cyan-300 font-semibold' : 'bg-slate-900 text-slate-400 hover:text-white'}`}
+                className={`px-3 py-1.5 transition ${mode === 'simple' ? 'bg-cyan-50 text-cyan-700 font-semibold' : 'bg-white text-slate-500 hover:text-slate-900'}`}
               >
                 😊 Simple
               </button>
               <button
                 onClick={() => setMode('advanced')}
-                className={`px-3 py-1.5 transition ${mode === 'advanced' ? 'bg-cyan-500/20 text-cyan-300 font-semibold' : 'bg-slate-900 text-slate-400 hover:text-white'}`}
+                className={`px-3 py-1.5 transition ${mode === 'advanced' ? 'bg-cyan-50 text-cyan-700 font-semibold' : 'bg-white text-slate-500 hover:text-slate-900'}`}
               >
                 ⚙️ Advanced
               </button>
             </div>
             <button
               onClick={() => fetchScreenerData()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-mono text-cyan-400 transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-xs font-mono text-cyan-600 transition"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} /> Run Screen
             </button>
@@ -164,13 +164,13 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
         {mode === 'simple' && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 font-sans text-sm">
             <div>
-              <label className="block text-slate-300 font-medium mb-1.5">
+              <label className="block text-slate-400 font-medium mb-1.5">
                 How should sales be growing? <MetricHelp term="revenueGrowthYoY" />
               </label>
               <select
                 value={simpleGrowth}
                 onChange={(e) => setSimpleGrowth(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-cyan-500"
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-400 outline-none focus:border-cyan-500"
               >
                 <option value="any">I don't mind</option>
                 <option value="growing">Growing (5%+ a year)</option>
@@ -178,13 +178,13 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
               </select>
             </div>
             <div>
-              <label className="block text-slate-300 font-medium mb-1.5">
+              <label className="block text-slate-400 font-medium mb-1.5">
                 How profitable should it be? <MetricHelp term="netMargin" />
               </label>
               <select
                 value={simpleProfit}
                 onChange={(e) => setSimpleProfit(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-cyan-500"
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-400 outline-none focus:border-cyan-500"
               >
                 <option value="any">I don't mind</option>
                 <option value="profitable">Makes a profit</option>
@@ -192,13 +192,13 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
               </select>
             </div>
             <div>
-              <label className="block text-slate-300 font-medium mb-1.5">
+              <label className="block text-slate-400 font-medium mb-1.5">
                 How expensive should the price be? <MetricHelp term="peRatio" />
               </label>
               <select
                 value={simpleCheap}
                 onChange={(e) => setSimpleCheap(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-cyan-500"
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-400 outline-none focus:border-cyan-500"
               >
                 <option value="any">I don't mind</option>
                 <option value="cheap">Cheap (P/E under 15)</option>
@@ -210,7 +210,7 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
 
         {/* Preset Chips */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar font-mono text-xs">
-          <span className="text-slate-400 text-[11px] uppercase mr-1">Curated Presets:</span>
+          <span className="text-slate-500 text-[11px] uppercase mr-1">Curated Presets:</span>
           {[
             { id: 'ALL', label: 'All Equities' },
             { id: 'TECH_GROWTH', label: '🚀 AI & Tech Growth' },
@@ -223,8 +223,8 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
               onClick={() => applyPreset(p.id)}
               className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition ${
                 activePreset === p.id
-                  ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
-                  : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+                  ? 'bg-cyan-50 text-cyan-700 font-bold border border-cyan-200'
+                  : 'bg-white text-slate-500 hover:text-slate-900 border border-slate-200'
               }`}
             >
               {p.label}
@@ -240,11 +240,11 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
       >
         {/* Sector */}
         <div>
-          <label className="block text-slate-400 text-[11px] uppercase mb-1">Sector</label>
+          <label className="block text-slate-500 text-[11px] uppercase mb-1">Sector</label>
           <select
             value={sector}
             onChange={(e) => setSector(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500"
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-400 outline-none focus:border-cyan-500"
           >
             <option value="ALL">All Sectors</option>
             <option value="Technology">Technology</option>
@@ -260,11 +260,11 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
 
         {/* Min Market Cap */}
         <div>
-          <label className="block text-slate-400 text-[11px] uppercase mb-1">Market Cap</label>
+          <label className="block text-slate-500 text-[11px] uppercase mb-1">Market Cap</label>
           <select
             value={minMarketCap || ''}
             onChange={(e) => setMinMarketCap(e.target.value ? Number(e.target.value) : undefined)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500"
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-400 outline-none focus:border-cyan-500"
           >
             <option value="">Any Market Cap</option>
             <option value="1000000000000">$1 Trillion+ (Mega)</option>
@@ -276,11 +276,11 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
 
         {/* Max P/E */}
         <div>
-          <label className="block text-slate-400 text-[11px] uppercase mb-1">Valuation (P/E)</label>
+          <label className="block text-slate-500 text-[11px] uppercase mb-1">Valuation (P/E)</label>
           <select
             value={maxPE || ''}
             onChange={(e) => setMaxPE(e.target.value ? Number(e.target.value) : undefined)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500"
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-400 outline-none focus:border-cyan-500"
           >
             <option value="">Any P/E Multiple</option>
             <option value="20">Under 20x (Deep Value)</option>
@@ -291,8 +291,8 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
 
         {/* Min Sentiment Score */}
         <div>
-          <label className="block text-slate-400 text-[11px] uppercase mb-1">
-            Min AI Sentiment: <strong className="text-cyan-400">+{minSentiment}</strong>
+          <label className="block text-slate-500 text-[11px] uppercase mb-1">
+            Min AI Sentiment: <strong className="text-cyan-600">+{minSentiment}</strong>
           </label>
           <input
             type="range"
@@ -307,11 +307,11 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
 
         {/* Price Performance Filter */}
         <div>
-          <label className="block text-slate-400 text-[11px] uppercase mb-1">Price Filter</label>
+          <label className="block text-slate-500 text-[11px] uppercase mb-1">Price Filter</label>
           <select
             value={pricePerformance}
             onChange={(e) => setPricePerformance(e.target.value as any)}
-            className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 outline-none focus:border-cyan-500"
+            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-400 outline-none focus:border-cyan-500"
           >
             <option value="ALL">All Price Action</option>
             <option value="GAINER_TODAY">Today Gainers</option>
@@ -325,8 +325,8 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
       {/* Results Table */}
       <div className="glass-panel rounded-2xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <div className="text-xs font-mono text-slate-400">
-            Found <strong className="text-white">{results.length}</strong> matching candidate stocks
+          <div className="text-xs font-mono text-slate-500">
+            Found <strong className="text-slate-900">{results.length}</strong> matching candidate stocks
           </div>
           <div className="text-xs font-mono text-slate-500">
             Click any row to open institutional terminal research
@@ -334,8 +334,8 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
         </div>
 
         {loading ? (
-          <div className="py-16 text-center text-slate-400 font-mono">
-            <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-cyan-400" />
+          <div className="py-16 text-center text-slate-500 font-mono">
+            <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2 text-cyan-600" />
             Executing screening filters...
           </div>
         ) : results.length === 0 ? (
@@ -346,7 +346,7 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-left font-mono text-xs">
               <thead>
-                <tr className="border-b border-slate-800 text-slate-400">
+                <tr className="border-b border-slate-200 text-slate-500">
                   <th className="pb-3 font-semibold">Ticker & Name</th>
                   <th className="pb-3 font-semibold">Sector</th>
                   <th className="pb-3 font-semibold">Price</th>
@@ -359,36 +359,36 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
                   <th className="pb-3 font-semibold text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60">
+              <tbody className="divide-y divide-slate-200">
                 {results.map((stk) => {
                   const isPos = stk.changePercent >= 0;
                   return (
                     <tr
                       key={stk.symbol}
                       onClick={() => onSelectSymbol(stk.symbol)}
-                      className="hover:bg-slate-800/40 transition cursor-pointer group"
+                      className="hover:bg-slate-50 transition cursor-pointer group"
                     >
                       <td className="py-3.5">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-cyan-300 text-sm group-hover:text-cyan-400">
+                          <span className="font-bold text-cyan-700 text-sm group-hover:text-cyan-600">
                             {stk.symbol}
                           </span>
-                          <span className="text-[11px] text-slate-400 font-sans truncate max-w-[150px]">
+                          <span className="text-[11px] text-slate-500 font-sans truncate max-w-[150px]">
                             {stk.name}
                           </span>
                         </div>
                       </td>
 
-                      <td className="py-3.5 text-slate-400">{stk.sector}</td>
+                      <td className="py-3.5 text-slate-500">{stk.sector}</td>
 
-                      <td className="py-3.5 font-bold text-white">${stk.price.toFixed(2)}</td>
+                      <td className="py-3.5 font-bold text-slate-900">${stk.price.toFixed(2)}</td>
 
                       <td className="py-3.5">
                         <span
                           className={`inline-flex items-center text-[11px] font-bold px-1.5 py-0.5 rounded ${
                             isPos
-                              ? 'bg-emerald-500/15 text-emerald-400'
-                              : 'bg-rose-500/15 text-rose-400'
+                              ? 'bg-emerald-50 text-emerald-600'
+                              : 'bg-rose-50 text-rose-600'
                           }`}
                         >
                           {isPos ? '+' : ''}
@@ -396,26 +396,26 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
                         </span>
                       </td>
 
-                      <td className="py-3.5 text-slate-300">{formatCap(stk.marketCap)}</td>
+                      <td className="py-3.5 text-slate-400">{formatCap(stk.marketCap)}</td>
 
-                      <td className="py-3.5 text-slate-300">{stk.peRatio ? stk.peRatio.toFixed(1) : 'N/A'}</td>
+                      <td className="py-3.5 text-slate-400">{stk.peRatio ? stk.peRatio.toFixed(1) : 'N/A'}</td>
 
-                      <td className="py-3.5 text-slate-400">
+                      <td className="py-3.5 text-slate-500">
                         {stk.dividendYield ? `${stk.dividendYield.toFixed(1)}%` : '0.0%'}
                       </td>
 
                       <td className="py-3.5">
                         <span className={`px-1.5 py-0.5 rounded text-[11px] ${
-                          (stk.rsi14 || 50) >= 70 ? 'bg-rose-500/15 text-rose-300' :
-                          (stk.rsi14 || 50) <= 30 ? 'bg-emerald-500/15 text-emerald-300' :
-                          'text-slate-300'
+                          (stk.rsi14 || 50) >= 70 ? 'bg-rose-50 text-rose-600' :
+                          (stk.rsi14 || 50) <= 30 ? 'bg-emerald-50 text-emerald-600' :
+                          'text-slate-400'
                         }`}>
                           {stk.rsi14 || 50}
                         </span>
                       </td>
 
                       <td className="py-3.5">
-                        <span className={`font-bold ${stk.sentimentScore >= 20 ? 'text-emerald-400' : stk.sentimentScore <= -20 ? 'text-rose-400' : 'text-slate-400'}`}>
+                        <span className={`font-bold ${stk.sentimentScore >= 20 ? 'text-emerald-600' : stk.sentimentScore <= -20 ? 'text-rose-600' : 'text-slate-500'}`}>
                           {stk.sentimentScore > 0 ? `+${stk.sentimentScore}` : stk.sentimentScore} ({stk.sentimentLabel})
                         </span>
                       </td>
@@ -426,7 +426,7 @@ export function ScreenerView({ onSelectSymbol }: ScreenerViewProps) {
                             e.stopPropagation();
                             onSelectSymbol(stk.symbol);
                           }}
-                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-cyan-500 hover:text-slate-950 text-cyan-400 text-xs font-semibold transition"
+                          className="px-2.5 py-1 rounded bg-slate-50 hover:bg-cyan-100 text-cyan-600 text-xs font-semibold transition"
                         >
                           Research ›
                         </button>
