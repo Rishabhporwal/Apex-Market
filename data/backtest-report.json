@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-27T12:54:39.723Z",
+  "generatedAt": "2026-10-27T13:15:08.839Z",
   "config": {
     "years": 3,
     "horizonDays": 90,
@@ -36,7 +36,16 @@
     "bootstrap": {
       "draws": 1000,
       "seed": 42,
-      "unit": "ticker-level alpha means (robust to overlapping checkpoints)"
+      "unit": "ticker-level means (robust to overlapping checkpoints)",
+      "reportedFor": [
+        "cash-relative expected return (primary)",
+        "SPY-relative alpha (secondary)"
+      ]
+    },
+    "reporting": {
+      "primaryMetric": "expected absolute forward return = alpha vs cash (risk-free proxy ≈ 0 over 90d windows, i.e. the raw forward return); reported as avgCashAlpha / bootstrap95ciCash",
+      "secondaryMetric": "SPY-relative alpha over the same windows (buy-and-hold SPY benchmark); reported as avgAlpha / bootstrap95ci",
+      "reference": "tmp/entry-timing-summary.md (2026-10-27) — cash-relative reporting adopted: the SPY-relative sign is a benchmark/weighting choice, not a stable property of the picks"
     },
     "note": "Quant-core only (trend+RSI+sentiment=0+percentile-composited fundamentals+12-1 momentum). News/LLM excluded — no honest historical news feed. Results are a lower bound."
   },
@@ -53,10 +62,12 @@
       "median": 2.39,
       "winRate": 56.8,
       "spyAvgSameWindows": 4.08,
+      "avgCashAlpha": 4.29,
       "avgAlpha": 0.21,
       "netOfCosts": {
         "avgReturn": 4.28,
         "winRate": 56.8,
+        "avgCashAlpha": 4.28,
         "avgAlpha": 0.21,
         "note": "long"
       }
@@ -67,6 +78,7 @@
       "median": 1.16,
       "winRate": 53.7,
       "spyAvgSameWindows": 4.07,
+      "avgCashAlpha": 2.54,
       "avgAlpha": -1.53
     },
     "SELL": {
@@ -75,10 +87,12 @@
       "median": 0.83,
       "winRate": 52.3,
       "spyAvgSameWindows": 3.85,
+      "avgCashAlpha": 5.71,
       "avgAlpha": 1.86,
       "netOfCosts": {
         "avgReturn": -5.71,
         "winRate": 47.6,
+        "avgCashAlpha": -5.71,
         "avgAlpha": -9.56,
         "note": "short interpretation: gross = -forward return"
       }
@@ -94,10 +108,12 @@
           "median": -0.4,
           "winRate": 44.3,
           "spyAvgSameWindows": -0.17,
+          "avgCashAlpha": -0.3,
           "avgAlpha": -0.13,
           "netOfCosts": {
             "avgReturn": -0.3,
             "winRate": 44.3,
+            "avgCashAlpha": -0.3,
             "avgAlpha": -0.13,
             "note": "long"
           }
@@ -108,6 +124,7 @@
           "median": -0.29,
           "winRate": 45.4,
           "spyAvgSameWindows": -0.12,
+          "avgCashAlpha": -0.36,
           "avgAlpha": -0.24
         },
         "SELL": {
@@ -116,10 +133,12 @@
           "median": -0.22,
           "winRate": 45.9,
           "spyAvgSameWindows": -0.15,
+          "avgCashAlpha": -0.39,
           "avgAlpha": -0.24,
           "netOfCosts": {
             "avgReturn": 0.39,
             "winRate": 53.3,
+            "avgCashAlpha": 0.39,
             "avgAlpha": 0.54,
             "note": "short interpretation: gross = -forward return"
           }
@@ -153,6 +172,35 @@
           ],
           "significantAt95": false
         }
+      },
+      "bootstrap95ciCash": {
+        "BUY": {
+          "tickers": 564,
+          "meanForwardReturn": -0.4,
+          "ci95": [
+            -0.53,
+            -0.27
+          ],
+          "significantAt95": true
+        },
+        "HOLD": {
+          "tickers": 587,
+          "meanForwardReturn": -0.32,
+          "ci95": [
+            -0.44,
+            -0.19
+          ],
+          "significantAt95": true
+        },
+        "SELL": {
+          "tickers": 326,
+          "meanForwardReturn": 0.12,
+          "ci95": [
+            -0.32,
+            0.59
+          ],
+          "significantAt95": false
+        }
       }
     },
     "21": {
@@ -164,10 +212,12 @@
           "median": 0.57,
           "winRate": 53.2,
           "spyAvgSameWindows": 1.01,
+          "avgCashAlpha": 0.8,
           "avgAlpha": -0.21,
           "netOfCosts": {
             "avgReturn": 0.8,
             "winRate": 53.2,
+            "avgCashAlpha": 0.8,
             "avgAlpha": -0.21,
             "note": "long"
           }
@@ -178,6 +228,7 @@
           "median": 0.01,
           "winRate": 50,
           "spyAvgSameWindows": 0.84,
+          "avgCashAlpha": 0.23,
           "avgAlpha": -0.61
         },
         "SELL": {
@@ -186,10 +237,12 @@
           "median": 0.2,
           "winRate": 50.9,
           "spyAvgSameWindows": 0.91,
+          "avgCashAlpha": 0.76,
           "avgAlpha": -0.15,
           "netOfCosts": {
             "avgReturn": -0.76,
             "winRate": 48.7,
+            "avgCashAlpha": -0.76,
             "avgAlpha": -1.67,
             "note": "short interpretation: gross = -forward return"
           }
@@ -223,6 +276,35 @@
           ],
           "significantAt95": false
         }
+      },
+      "bootstrap95ciCash": {
+        "BUY": {
+          "tickers": 564,
+          "meanForwardReturn": 0.29,
+          "ci95": [
+            0.03,
+            0.55
+          ],
+          "significantAt95": true
+        },
+        "HOLD": {
+          "tickers": 587,
+          "meanForwardReturn": 0.42,
+          "ci95": [
+            0.22,
+            0.65
+          ],
+          "significantAt95": true
+        },
+        "SELL": {
+          "tickers": 326,
+          "meanForwardReturn": 1.07,
+          "ci95": [
+            0.29,
+            1.9
+          ],
+          "significantAt95": true
+        }
       }
     },
     "90": {
@@ -234,10 +316,12 @@
           "median": 2.39,
           "winRate": 56.8,
           "spyAvgSameWindows": 4.08,
+          "avgCashAlpha": 4.29,
           "avgAlpha": 0.21,
           "netOfCosts": {
             "avgReturn": 4.28,
             "winRate": 56.8,
+            "avgCashAlpha": 4.28,
             "avgAlpha": 0.21,
             "note": "long"
           }
@@ -248,6 +332,7 @@
           "median": 1.16,
           "winRate": 53.7,
           "spyAvgSameWindows": 4.07,
+          "avgCashAlpha": 2.54,
           "avgAlpha": -1.53
         },
         "SELL": {
@@ -256,10 +341,12 @@
           "median": 0.83,
           "winRate": 52.3,
           "spyAvgSameWindows": 3.85,
+          "avgCashAlpha": 5.71,
           "avgAlpha": 1.86,
           "netOfCosts": {
             "avgReturn": -5.71,
             "winRate": 47.6,
+            "avgCashAlpha": -5.71,
             "avgAlpha": -9.56,
             "note": "short interpretation: gross = -forward return"
           }
@@ -292,6 +379,35 @@
             3.42
           ],
           "significantAt95": false
+        }
+      },
+      "bootstrap95ciCash": {
+        "BUY": {
+          "tickers": 558,
+          "meanForwardReturn": 2.35,
+          "ci95": [
+            1.64,
+            3.12
+          ],
+          "significantAt95": true
+        },
+        "HOLD": {
+          "tickers": 587,
+          "meanForwardReturn": 3.27,
+          "ci95": [
+            2.63,
+            3.99
+          ],
+          "significantAt95": true
+        },
+        "SELL": {
+          "tickers": 324,
+          "meanForwardReturn": 5.35,
+          "ci95": [
+            3.68,
+            7.21
+          ],
+          "significantAt95": true
         }
       }
     }
@@ -1092,6 +1208,7 @@
         "avgForwardReturn": 1.13,
         "winRate": 46.2,
         "spyAvgSameWindows": 3.62,
+        "avgCashAlpha": 1.13,
         "avgAlpha": -2.5
       },
       "HOLD": {
@@ -1099,6 +1216,7 @@
         "avgForwardReturn": 3.29,
         "winRate": 54.5,
         "spyAvgSameWindows": 4.05,
+        "avgCashAlpha": 3.29,
         "avgAlpha": -0.76
       },
       "SELL": {
@@ -1106,6 +1224,7 @@
         "avgForwardReturn": 7.2,
         "winRate": 62.7,
         "spyAvgSameWindows": 6,
+        "avgCashAlpha": 7.2,
         "avgAlpha": 1.2
       }
     }

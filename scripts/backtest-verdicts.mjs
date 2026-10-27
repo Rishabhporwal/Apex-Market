@@ -2,7 +2,14 @@
 /**
  * Verdict Backtester — measures how the AI Verdict's quant core would have
  * performed historically. This is the trust anchor: "BUY-rated signals from
- * this engine returned X% vs the S&P's Y% over the same windows."
+ * this engine returned X% over the window (cash-relative expectation first);
+ * SPY-relative alpha over the same windows is reported as a secondary figure."
+ *
+ * Reporting convention (2026-10-27 research recommendation, see
+ * tmp/entry-timing-summary.md): the PRIMARY metric is the expected absolute
+ * forward return — alpha vs cash with a ~0 risk-free proxy over 90d windows,
+ * i.e. the raw forward return. The SPY-relative figure is kept as a secondary
+ * benchmark view and labeled as such everywhere (report JSON + console).
  *
  * Method (honest by construction):
  *  - Walks monthly checkpoints over the last N years for a shared universe of
@@ -24,14 +31,17 @@
  *  - Transaction costs: LIQUIDITY-SCALED square-root impact (see COST_MODEL)
  *    — small orders in thin names cost more; flat 10 bps only as a fallback
  *    when volume/sigma data is missing.
- *  - Significance: bootstrap 95% CIs on TICKER-level alpha means (1000 draws,
- *    deterministic seed) so overlapping forward windows can't fake edge.
+ *  - Significance: bootstrap 95% CIs on TICKER-level means (1000 draws,
+ *    deterministic seed) so overlapping forward windows can't fake edge —
+ *    reported for BOTH the cash-relative (raw forward return) primary metric
+ *    and the SPY-relative alpha.
  *  - Rank performance (P123-style quantile test): at each checkpoint the
  *    scored universe is bucketed into score QUINTILES; mean forward return
  *    and alpha per bucket; Spearman (and Pearson) of bucket-vs-return per
  *    month; first-half vs second-half consistency; top-vs-middle-bucket
  *    pass/fail — see rankPerformance in the report.
- *  - Benchmark: SPY buy-and-hold over the same windows.
+ *  - Benchmark: SPY buy-and-hold over the same windows (secondary view; the
+ *    primary reported figure is the absolute forward return vs cash).
  *  - Emits data/calibration.json: score-band -> observed target1 hit-rate
  *    (price reached target1 within the horizon before hitting the stop),
  *    consumed by the quant engine's confidence lookup.
@@ -845,12 +855,17 @@ async function main() {
       winRate: +winRate(B.action[name]).toFixed(1),
       spyAvgSameWindows: r2(avg(B.spy[name])),
     };
-    raw.avgAlpha = r2(raw.avgForwardReturn - raw.spyAvgSameWindows);
+    // Cash-relative alpha is the PRIMARY reported metric. With a ~0 risk-free
+    // proxy over 90d windows it equals the raw forward return (gross); net of
+    // costs it equals the net forward return.
+    raw.avgCashAlpha = raw.avgForwardReturn;
+    raw.avgAlpha = r2(raw.avgForwardReturn - raw.spyAvgSameWindows); // secondary: vs SPY
     if (name === 'BUY' || name === 'SELL') {
       raw.netOfCosts = {
         avgReturn: r2(avg(B.net[name])),
         winRate: +winRate(B.net[name]).toFixed(1),
-        avgAlpha: r2(avg(B.net[name]) - avg(B.spyNet[name])),
+        avgCashAlpha: r2(avg(B.net[name])),
+        avgAlpha: r2(avg(B.net[name]) - avg(B.spyNet[name])), // secondary: vs SPY
         note: name === 'SELL' ? 'short interpretation: gross = -forward return' : 'long',
       };
     }
@@ -861,7 +876,8 @@ async function main() {
     avgForwardReturn: r2(avg(legacyBuckets[name])),
     winRate: +winRate(legacyBuckets[name]).toFixed(1),
     spyAvgSameWindows: r2(avg(legacySpyBuckets[name])),
-    avgAlpha: r2(avg(legacyBuckets[name]) - avg(legacySpyBuckets[name])),
+    avgCashAlpha: r2(avg(legacyBuckets[name])), // primary: vs cash (risk-free ≈ 0)
+    avgAlpha: r2(avg(legacyBuckets[name]) - avg(legacySpyBuckets[name])), // secondary: vs SPY
   });
 
   const calibration = {};
@@ -878,9 +894,13 @@ async function main() {
     };
   }
 
-  // Per-horizon reports + bootstrap 95% CIs on ticker-level alpha means
+  // Per-horizon reports + bootstrap 95% CIs on ticker-level means
   // (Newey-West-style clustering: overlapping checkpoints within a ticker are
   // absorbed by resampling the TICKER as the independent unit).
+  // Two views per action:
+  //   bootstrap95ci      — SPY-relative alpha (secondary benchmark view)
+  //   bootstrap95ciCash  — cash-relative expected return = raw forward return
+  //                        (PRIMARY view; risk-free proxy ≈ 0 over 90d windows)
   const bootstrapCiFor = (h, name) => {
     const m = tickerStats.get(h)[name];
     if (m.size < 2) return null;
@@ -893,12 +913,25 @@ async function main() {
       significantAt95: ci ? ci.lo > 0 || ci.hi < 0 : false,
     };
   };
+  const bootstrapCiForCash = (h, name) => {
+    const m = tickerStats.get(h)[name];
+    if (m.size < 2) return null;
+    const rets = [...m.values()].map((s) => avg(s.fwd)); // vs cash = raw forward return
+    const ci = bootstrapCi(rets);
+    return {
+      tickers: m.size,
+      meanForwardReturn: r2(avg(rets)),
+      ci95: ci ? [r2(ci.lo), r2(ci.hi)] : null,
+      significantAt95: ci ? ci.lo > 0 || ci.hi < 0 : false,
+    };
+  };
   const horizonReports = {};
   for (const h of HORIZONS) {
     horizonReports[h] = {
       horizonDays: h,
       actions: { BUY: actionSummary(h, 'BUY'), HOLD: actionSummary(h, 'HOLD'), SELL: actionSummary(h, 'SELL') },
       bootstrap95ci: { BUY: bootstrapCiFor(h, 'BUY'), HOLD: bootstrapCiFor(h, 'HOLD'), SELL: bootstrapCiFor(h, 'SELL') },
+      bootstrap95ciCash: { BUY: bootstrapCiForCash(h, 'BUY'), HOLD: bootstrapCiForCash(h, 'HOLD'), SELL: bootstrapCiForCash(h, 'SELL') },
     };
   }
 
@@ -1028,7 +1061,12 @@ async function main() {
         universeBasisObservations: pctUniverseBasis,
         absentObservations: pctAbsent,
       },
-      bootstrap: { draws: BOOTSTRAP_DRAWS, seed: BOOTSTRAP_SEED, unit: 'ticker-level alpha means (robust to overlapping checkpoints)' },
+      bootstrap: { draws: BOOTSTRAP_DRAWS, seed: BOOTSTRAP_SEED, unit: 'ticker-level means (robust to overlapping checkpoints)', reportedFor: ['cash-relative expected return (primary)', 'SPY-relative alpha (secondary)'] },
+      reporting: {
+        primaryMetric: 'expected absolute forward return = alpha vs cash (risk-free proxy ≈ 0 over 90d windows, i.e. the raw forward return); reported as avgCashAlpha / bootstrap95ciCash',
+        secondaryMetric: 'SPY-relative alpha over the same windows (buy-and-hold SPY benchmark); reported as avgAlpha / bootstrap95ci',
+        reference: 'tmp/entry-timing-summary.md (2026-10-27) — cash-relative reporting adopted: the SPY-relative sign is a benchmark/weighting choice, not a stable property of the picks',
+      },
       note: 'Quant-core only (trend+RSI+sentiment=0+percentile-composited fundamentals+12-1 momentum). News/LLM excluded — no honest historical news feed. Results are a lower bound.',
     },
     totals: { signals: totalSignals, tickersTested: tickerData.size, tickersSkipped: skippedNoData, checkpoints: doneCheckpoints },
@@ -1060,19 +1098,22 @@ async function main() {
   fs.writeFileSync(CALIBRATION_OUT, JSON.stringify(calibrationDoc, null, 2));
 
   console.log('\n===== BACKTEST SUMMARY (percentile composition, liquidity-scaled costs) =====');
+  console.log('Primary metric = expected absolute forward return (vs cash, risk-free ≈ 0). SPY-relative alpha is secondary.');
   for (const h of HORIZONS) {
     console.log(`--- ${h}d horizon ---`);
     for (const [a, s] of Object.entries(horizonReports[h].actions)) {
-      console.log(`${a.padEnd(5)} n=${String(s.n).padStart(4)} | avg ${s.avgForwardReturn > 0 ? '+' : ''}${s.avgForwardReturn}% in ${h}d | win ${s.winRate}% | alpha ${s.avgAlpha > 0 ? '+' : ''}${s.avgAlpha}% vs SPY${s.netOfCosts ? ` | NET ${s.netOfCosts.avgReturn > 0 ? '+' : ''}${s.netOfCosts.avgReturn}% win ${s.netOfCosts.winRate}% alpha ${s.netOfCosts.avgAlpha > 0 ? '+' : ''}${s.netOfCosts.avgAlpha}%` : ''}`);
+      console.log(`${a.padEnd(5)} n=${String(s.n).padStart(4)} | expected ${h}d return (vs cash) ${s.avgCashAlpha > 0 ? '+' : ''}${s.avgCashAlpha}% | win ${s.winRate}% | vs SPY ${s.avgAlpha > 0 ? '+' : ''}${s.avgAlpha}%${s.netOfCosts ? ` | NET of costs ${s.netOfCosts.avgReturn > 0 ? '+' : ''}${s.netOfCosts.avgReturn}% win ${s.netOfCosts.winRate}% (vs cash; vs SPY ${s.netOfCosts.avgAlpha > 0 ? '+' : ''}${s.netOfCosts.avgAlpha}%)` : ''}`);
     }
   }
-  console.log(`\n===== BOOTSTRAP 95% CI (ticker-level alpha means, ${BOOTSTRAP_DRAWS} draws, seed ${BOOTSTRAP_SEED} — overlapping-checkpoint robust) =====`);
+  console.log(`\n===== BOOTSTRAP 95% CI (ticker-level means, ${BOOTSTRAP_DRAWS} draws, seed ${BOOTSTRAP_SEED} — overlapping-checkpoint robust) =====`);
   for (const h of HORIZONS) {
     for (const a of ['BUY', 'HOLD', 'SELL']) {
+      const cc = horizonReports[h].bootstrap95ciCash[a];
       const c = horizonReports[h].bootstrap95ci[a];
-      if (!c) { console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} n/a (fewer than 2 tickers)`); continue; }
+      if (!cc || !c) { console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} n/a (fewer than 2 tickers)`); continue; }
+      const [clo, chi] = cc.ci95;
       const [lo, hi] = c.ci95;
-      console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} mean alpha ${c.meanAlpha > 0 ? '+' : ''}${c.meanAlpha}% [${lo}%, ${hi}%] over ${c.tickers} tickers → ${c.significantAt95 ? 'SIGNIFICANT at 95%' : 'not significant at 95%'}`);
+      console.log(`${String(h).padStart(3)}d ${a.padEnd(5)} expected return vs cash ${cc.meanForwardReturn > 0 ? '+' : ''}${cc.meanForwardReturn}% [${clo}%, ${chi}%] → ${cc.significantAt95 ? 'SIGNIFICANT at 95%' : 'not significant at 95%'} | vs SPY alpha ${c.meanAlpha > 0 ? '+' : ''}${c.meanAlpha}% [${lo}%, ${hi}%] → ${c.significantAt95 ? 'SIGNIFICANT at 95%' : 'not significant at 95%'} (${cc.tickers} tickers)`);
     }
   }
   console.log('\n===== RANK PERFORMANCE (quantile monotonicity, P123-style) =====');
@@ -1089,7 +1130,7 @@ async function main() {
   for (const a of ['BUY', 'HOLD', 'SELL']) {
     const o = report.actions[a];
     const l = report.legacy.actions[a];
-    console.log(`${a.padEnd(5)} n=${String(l.n).padStart(4)} | avg alpha ${l.avgAlpha > 0 ? '+' : ''}${l.avgAlpha}% -> ${o.avgAlpha > 0 ? '+' : ''}${o.avgAlpha}% (raw) / ${o.netOfCosts ? `${o.netOfCosts.avgAlpha > 0 ? '+' : ''}${o.netOfCosts.avgAlpha}% (net)` : 'n/a'} | win ${l.winRate}% -> ${o.winRate}%`);
+    console.log(`${a.padEnd(5)} n=${String(l.n).padStart(4)} | expected return (vs cash) ${l.avgCashAlpha > 0 ? '+' : ''}${l.avgCashAlpha}% -> ${o.avgCashAlpha > 0 ? '+' : ''}${o.avgCashAlpha}% (raw) / ${o.netOfCosts ? `${o.netOfCosts.avgCashAlpha > 0 ? '+' : ''}${o.netOfCosts.avgCashAlpha}% (net)` : 'n/a'} | vs SPY alpha ${l.avgAlpha > 0 ? '+' : ''}${l.avgAlpha}% -> ${o.avgAlpha > 0 ? '+' : ''}${o.avgAlpha}% | win ${l.winRate}% -> ${o.winRate}%`);
   }
   console.log('\n===== CALIBRATION (score band -> target1 hit-rate) =====');
   for (const band of BAND_ORDER) {

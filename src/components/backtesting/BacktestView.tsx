@@ -253,22 +253,23 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
       {result && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Total Return</div>
+            <div className="text-[10px] font-mono uppercase text-slate-500">Expected Return</div>
             <div className={`text-xl font-extrabold font-mono mt-1 ${result.totalReturnPercent >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {result.totalReturnPercent >= 0 ? '+' : ''}{result.totalReturnPercent.toFixed(2)}%
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">
-              SPY: {result.benchmarkReturnPercent >= 0 ? '+' : ''}{result.benchmarkReturnPercent.toFixed(2)}%
-            </div>
+            <div className="text-[10px] font-mono text-slate-500 mt-0.5">Absolute (vs cash)</div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Alpha vs SPY</div>
+            <div className="text-[10px] font-mono uppercase text-slate-500">vs Index</div>
             <div className={`text-xl font-extrabold font-mono mt-1 ${result.totalReturnPercent - result.benchmarkReturnPercent >= 0 ? 'text-cyan-600' : 'text-rose-600'}`}>
               {(result.totalReturnPercent - result.benchmarkReturnPercent) >= 0 ? '+' : ''}
               {(result.totalReturnPercent - result.benchmarkReturnPercent).toFixed(2)}%
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">Strategy Excess</div>
+            {/* Secondary benchmark view, kept below the absolute expectation. */}
+            <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+              SPY same window: {result.benchmarkReturnPercent >= 0 ? '+' : ''}{result.benchmarkReturnPercent.toFixed(2)}%
+            </div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">

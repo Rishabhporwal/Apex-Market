@@ -2,7 +2,7 @@
 
 ## Files
 - `data/warehouse.duckdb` — SEC EDGAR XBRL facts (companies, facts, metrics_latest). Written ONLY by `scripts/ingest-edgar.mjs`. Re-ingest rarely (fundamentals change quarterly at most).
-- `data/warehouse.duckdb` quarterly tables — `facts_quarterly` (10-Q facts, last ~12 quarters) and `metrics_ttm` (rolling-TTM growth/quality metrics). Written ONLY by `scripts/ingest-edgar-quarterly.mjs`. Run quarterly (after the bulk of 10-Qs land: ~6 weeks after each calendar quarter end).
+- `data/warehouse.duckdb` quarterly tables — `facts_quarterly` (10-Q facts, last ~10 years / ~40 quarters) and `metrics_ttm` (rolling-TTM growth/quality metrics). Written ONLY by `scripts/ingest-edgar-quarterly.mjs`. Run quarterly (after the bulk of 10-Qs land: ~6 weeks after each calendar quarter end).
 - `data/prices.duckdb` — daily live quotes from Yahoo. Written ONLY by `scripts/refresh-prices.mjs`. Separate file so price refreshes never conflict with the read-only warehouse the dev server holds open.
 - `data/latest-prices.json` — flat snapshot of the latest quotes for cheap API-layer reads.
 
@@ -12,7 +12,7 @@
 
 - **`facts_quarterly`** — same shape as `facts`, but ONLY quarterly facts:
   `fp ∈ Q1..Q4`, form `10-Q`/`10-Q/A`, duration 55–130 days (YTD stubs
-  excluded), period ends within the last ~40 months.
+  excluded), period ends within the last ~10 years (120 months).
   It is a separate table, NOT a `period` column on `facts`, because
   svc-edgar's screener revenue CTE reads `facts` unfiltered and identifies
   annual pairs by a 300–400-day gap between period ends — quarterly rows

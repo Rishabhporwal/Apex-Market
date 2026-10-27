@@ -4,7 +4,7 @@
  *
  * Fetches SEC companyfacts for the sector-labeled index universe (S&P 500 +
  * S&P 400 by default; ~900 names) and stores QUARTERLY facts (fp=FQ, form
- * 10-Q/10-Q/A) for the last ~12 quarters, plus rolling-TTM metrics.
+ * 10-Q/10-Q/A) for the last ~10 years (40 quarters), plus rolling-TTM metrics.
  *
  * Storage decision (documented in README-DATA.md):
  *   - facts_quarterly table, NOT a period column on `facts`. svc-edgar's
@@ -46,8 +46,10 @@ const ERROR_LOG = path.join(DATA_DIR, 'ingest-quarterly-errors.log');
 const COMPANYFACTS_URL = (cik) =>
   `https://data.sec.gov/api/xbrl/companyfacts/CIK${String(cik).padStart(10, '0')}.json`;
 
-// ~12 quarters of history: cutoff 40 months back from today.
-const CUTOFF_MS = Date.now() - 40 * 30.44 * 24 * 3600 * 1000;
+// ~10 years of 10-Q history: cutoff 120 months back from today. companyfacts
+// returns each filer's full history in one request, so widening the window
+// costs no extra HTTP traffic — only more rows land in facts_quarterly.
+const CUTOFF_MS = Date.now() - 120 * 30.44 * 24 * 3600 * 1000;
 
 // ---- quarterly fact extraction ----
 function isQuarterly(v) {
