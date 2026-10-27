@@ -224,7 +224,7 @@ Financial news sentiment scores at ${sentimentScore > 0 ? '+' : ''}${sentimentSc
 With a trailing P/E multiple of ${pe} and strong operating cash flows, the asset presents an actionable setup with defined support floors and clear upside targets.`;
 
     return {
-      providerUsed: 'ApexMarket Quantitative AI (Local Engine)',
+      providerUsed: 'Tradexa Quantitative AI (Local Engine)',
       model: 'quant-nlp-v2.5',
       deepAnalysis,
       keyRisks: [

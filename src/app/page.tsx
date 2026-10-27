@@ -155,7 +155,7 @@ export default function Home() {
             <span>AI Master Prediction • Market Data Engine • Financial Modeling • Sentiment AI • SEC EDGAR • Quant Backtester</span>
           </div>
           <div>
-            <span>ApexMarket AI v2.5 • US Equities (NYSE / NASDAQ)</span>
+            <span>Tradexa AI v2.5 • US Equities (NYSE / NASDAQ)</span>
           </div>
         </div>
       </footer>

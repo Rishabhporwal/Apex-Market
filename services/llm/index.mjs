@@ -4,7 +4,7 @@
  * Ports the OpenRouter path of src/services/llmService.ts (runDeepAnalysis):
  * OPENROUTER_API_KEY env, model default deepseek/deepseek-v3.2, same system
  * prompt, per-model cost counters exposed at GET /stats. Deterministic local
- * fallback ("ApexMarket Quantitative AI") when no key is present — never throws.
+ * fallback ("Tradexa Quantitative AI") when no key is present — never throws.
  *
  * The API key is read from the environment only; it is never logged or echoed.
  */
@@ -147,7 +147,7 @@ Financial news sentiment scores at ${sentimentScore > 0 ? '+' : ''}${sentimentSc
 With a trailing P/E multiple of ${pe} and strong operating cash flows, the asset presents an actionable setup with defined support floors and clear upside targets.`;
 
   return {
-    providerUsed: 'ApexMarket Quantitative AI (Local Engine)',
+    providerUsed: 'Tradexa Quantitative AI (Local Engine)',
     model: 'quant-nlp-v2.5',
     deepAnalysis,
     keyRisks: [

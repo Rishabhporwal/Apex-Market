@@ -1,4 +1,4 @@
-# ApexMarket — Microservices Architecture (ADR-001)
+# Tradexa — Microservices Architecture (ADR-001)
 
 Status: APPROVED · Author: Solution Architect · Date: 2026-10-18
 

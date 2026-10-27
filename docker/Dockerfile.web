@@ -2,7 +2,9 @@
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# better-sqlite3 has no prebuilt binary for node:24 — node-gyp needs python3/make/g++.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/* \
+    && npm ci
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 # Build needs the API base at build time only for public env; runtime base is env-driven.

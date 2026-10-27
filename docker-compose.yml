@@ -1,4 +1,4 @@
-# ApexMarket microservices — one command, seven services + web.
+# Tradexa microservices — one command, seven services + web.
 #
 #   docker compose up -d --build      # start everything (web :3000, gateway :8080)
 #   docker compose ps                 # health matrix
@@ -22,11 +22,11 @@
 #
 # The OpenRouter key is injected from .env.local (never baked into images).
 
-name: apexmarket
+name: tradexa
 
 x-svc-defaults: &svc-defaults
   restart: unless-stopped
-  networks: [apexnet]
+  networks: [tradexanet]
 
 x-svc-health: &svc-health
   interval: 10s
@@ -40,7 +40,7 @@ services:
   registry:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: registry } }
-    container_name: apex-registry
+    container_name: tradexa-registry
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0
@@ -53,7 +53,7 @@ services:
   market-data:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: market-data } }
-    container_name: apex-market-data
+    container_name: tradexa-market-data
     volumes:
       - ./data:/app/data:ro          # prices.duckdb + latest-prices.json (read-only view)
     environment:
@@ -70,7 +70,7 @@ services:
   edgar:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: edgar } }
-    container_name: apex-edgar
+    container_name: tradexa-edgar
     volumes:
       - ./data:/app/data:ro          # warehouse.duckdb READ_ONLY — ingest is a one-shot job
     environment:
@@ -89,7 +89,7 @@ services:
   news:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: news } }
-    container_name: apex-news
+    container_name: tradexa-news
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0
@@ -104,7 +104,7 @@ services:
   research:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: research } }
-    container_name: apex-research
+    container_name: tradexa-research
     volumes:
       # Read-WRITE: research is the ONLY service that writes filing-cache
       # (extracted SEC filing text + ticker map, immutable, no TTL). Everything
@@ -126,7 +126,7 @@ services:
   analytics:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: analytics } }
-    container_name: apex-analytics
+    container_name: tradexa-analytics
     environment:
       - NODE_ENV=production
       - SERVICE_BIND=0.0.0.0
@@ -143,7 +143,7 @@ services:
   verdict:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: verdict } }
-    container_name: apex-verdict
+    container_name: tradexa-verdict
     volumes:
       # Read-WRITE: verdict owns data/verdict-cache (research-layer cache) and
       # data/daily-runs (Top-15 reports). It never opens any .duckdb file, so
@@ -168,7 +168,7 @@ services:
   llm:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: llm } }
-    container_name: apex-llm
+    container_name: tradexa-llm
     env_file:
       - .env.local                    # OPENROUTER_API_KEY — llm is the ONLY service that needs it
     environment:
@@ -191,7 +191,7 @@ services:
   userdata:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: userdata } }
-    container_name: apex-userdata
+    container_name: tradexa-userdata
     volumes:
       - ./data:/app/data             # read-write — this service owns userdata.db
     environment:
@@ -210,7 +210,7 @@ services:
   gateway:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: gateway } }
-    container_name: apex-gateway
+    container_name: tradexa-gateway
     ports:
       - "127.0.0.1:8080:8080"                  # the only API entrypoint
     environment:
@@ -238,7 +238,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
-    container_name: apex-web
+    container_name: tradexa-web
     ports:
       - "127.0.0.1:3000:3000"                  # user-facing UI
     environment:
@@ -249,6 +249,9 @@ services:
       gateway: { condition: service_healthy }
     healthcheck:
       <<: *svc-health
+      # Next has no /healthz route (services/shared/healthcheck.mjs isn't in this
+      # image) — probe the root page instead.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/',{signal:AbortSignal.timeout(2500)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       start_period: 40s
 
   # ---- one-shot jobs ---------------------------------------------------------
@@ -259,7 +262,7 @@ services:
     entrypoint: ["node", "scripts/ingest-edgar.mjs", "--all"]
     volumes:
       - ./data:/app/data             # WRITE access — edgar must be stopped
-    networks: [apexnet]
+    networks: [tradexanet]
     env_file:
       - .env.local
 
@@ -269,7 +272,7 @@ services:
     entrypoint: ["node", "scripts/refresh-prices.mjs"]
     volumes:
       - ./data:/app/data
-    networks: [apexnet]
+    networks: [tradexanet]
 
   backtest:
     profiles: ["backtest"]
@@ -277,8 +280,8 @@ services:
     entrypoint: ["node", "scripts/backtest-verdicts.mjs", "--years=3", "--horizon=90", "--top=120"]
     volumes:
       - ./data:/app/data
-    networks: [apexnet]
+    networks: [tradexanet]
 
 networks:
-  apexnet:
+  tradexanet:
     driver: bridge

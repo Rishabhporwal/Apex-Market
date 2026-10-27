@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'ApexMarket AI | Institutional-Grade Stock Market Intelligence',
+  title: 'Tradexa AI | Institutional-Grade Stock Market Intelligence',
   description: 'Advanced stock market research platform with real-time analytics, AI sentiment prediction, interactive charting, financial modeling, SEC filings, stock screener, quantitative backtesting and simulated paper trading.',
 };
 

@@ -162,7 +162,7 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
           <div>
             <div className="flex items-center gap-2">
               <span className="text-lg font-bold tracking-tight text-slate-900 font-sans">
-                Apex<span className="text-slate-400">Market</span>
+                Trade<span className="text-slate-400">xa</span>
               </span>
               <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200">
                 PRO 2.0

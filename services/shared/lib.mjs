@@ -1,5 +1,5 @@
 /**
- * ApexMarket Phase-1 shared service library (ADR-001).
+ * Tradexa Phase-1 shared service library (ADR-001).
  *
  * Plain ESM + JSDoc — no TS build step. Everything here maps 1:1 to the
  * interface contracts in ARCHITECTURE.md: pino JSON logs, X-Request-Id /

@@ -1,4 +1,4 @@
-# ApexMarket Phase-1 Services (ADR-001)
+# Tradexa Phase-1 Services (ADR-001)
 
 Network-separated microservices extracted from the Next.js monolith. Plain
 Node.js ESM (.mjs) + Fastify + pino — no TS build step. Each service runs

@@ -1,5 +1,5 @@
-# Shared Dockerfile for all ApexMarket microservices.
-# Build with:  docker build -f docker/Dockerfile.service --build-arg SVC=market-data -t apex/svc-market-data .
+# Shared Dockerfile for all Tradexa microservices.
+# Build with:  docker build -f docker/Dockerfile.service --build-arg SVC=market-data -t tradexa/svc-market-data .
 # The image is identical except the entrypoint — layer cache is shared across all 7 services.
 FROM node:24-bookworm-slim
 

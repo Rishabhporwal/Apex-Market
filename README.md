@@ -1,4 +1,4 @@
-# ApexMarket AI
+# Tradexa AI
 
 Institutional-grade stock research platform — AI-first, open-source, runs entirely on public data.
 
