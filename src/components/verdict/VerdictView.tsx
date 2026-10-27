@@ -47,7 +47,7 @@ interface AiVerdict {
   drivers: {
     bullish: string[];
     bearish: string[];
-    newsItems: { title: string; source: string; url?: string; sentiment: string; score: number }[];
+    newsItems: { title: string; source: string; url?: string; sentiment: string; score: number; publishedAt?: string | number }[];
   };
   strategy: { headline: string; entry?: string; plan: string[]; riskNote: string };
   fundamentals?: {
@@ -71,6 +71,39 @@ interface AiVerdict {
   aiNarrative?: string;
   ensemble?: { consensus: string | null; agreeing: number; of: number; votes: { model: string; verdict: string | null; confidenceGuess: number | null; error?: string }[] } | null;
   disclaimer: string;
+}
+
+// News freshness helpers — mirror the sentiment engine's 0.5^(ageHours/24) decay:
+// <24h fresh (full weight), 1-3d normal, >3d faded as 'low relevance'.
+function newsAgeHours(publishedAt?: string | number | null): number | null {
+  if (publishedAt === undefined || publishedAt === null || publishedAt === '') return null;
+  const t = typeof publishedAt === 'number' ? publishedAt : Date.parse(publishedAt);
+  if (!Number.isFinite(t)) return null;
+  return (Date.now() - t) / 3_600_000;
+}
+
+function newsAgeLabel(publishedAt?: string | number | null): string | null {
+  const h = newsAgeHours(publishedAt);
+  if (h === null) return null;
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))}m ago`;
+  if (h < 24) return `${Math.round(h)}h ago`;
+  const d = Math.round(h / 24);
+  if (d < 45) return `${d}d ago`;
+  return `${Math.round(d / 30)}mo ago`;
+}
+
+function newsDateLabel(publishedAt?: string | number | null): string | null {
+  const h = newsAgeHours(publishedAt);
+  if (h === null) return null;
+  const d = new Date(Date.now() - h * 3_600_000);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+}
+
+function newsFreshnessClass(publishedAt?: string | number | null): string | null {
+  const h = newsAgeHours(publishedAt);
+  if (h !== null && h > 72) return 'opacity-50';
+  return null;
 }
 
 const ACTION_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
@@ -543,36 +576,49 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {/* News */}
       {v.drivers.newsItems?.length > 0 && (
         <div className="glass-panel rounded-2xl p-6">
-          <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
+          <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-1">
             <Newspaper className="h-4 w-4 text-cyan-600" /> News the AI weighed
             <MetricHelp term="sentimentScore" />
           </h3>
+          <p className="text-[11px] text-slate-500 mb-2">Older news contributes less to the sentiment score.</p>
           <div className="space-y-2">
-            {v.drivers.newsItems.map((n, i) => (
-              <div key={i} className="flex items-start gap-3 text-sm py-1.5 border-b border-slate-200 last:border-0">
-                <span
-                  className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
-                    n.sentiment === 'bullish'
-                      ? 'bg-emerald-50 text-emerald-600'
-                      : n.sentiment === 'bearish'
-                        ? 'bg-rose-50 text-rose-600'
-                        : 'bg-slate-50 text-slate-500'
-                  }`}
-                >
-                  {n.sentiment}
-                </span>
-                <div className="min-w-0">
-                  {n.url ? (
-                    <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-cyan-700 line-clamp-2">
-                      {n.title}
-                    </a>
-                  ) : (
-                    <span className="text-slate-400 line-clamp-2">{n.title}</span>
-                  )}
-                  <span className="text-[10px] text-slate-500 ml-2">{n.source}</span>
+            {v.drivers.newsItems.map((n, i) => {
+              const ageLabel = newsAgeLabel(n.publishedAt);
+              const dateLabel = newsDateLabel(n.publishedAt);
+              const faded = newsFreshnessClass(n.publishedAt);
+              return (
+                <div key={i} className={`flex items-start gap-3 text-sm py-1.5 border-b border-slate-200 last:border-0 ${faded ?? ''}`}>
+                  <span
+                    className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                      n.sentiment === 'bullish'
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : n.sentiment === 'bearish'
+                          ? 'bg-rose-50 text-rose-600'
+                          : 'bg-slate-50 text-slate-500'
+                    }`}
+                  >
+                    {n.sentiment}
+                  </span>
+                  <div className="min-w-0">
+                    {n.url ? (
+                      <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-cyan-700 line-clamp-2">
+                        {n.title}
+                      </a>
+                    ) : (
+                      <span className="text-slate-400 line-clamp-2">{n.title}</span>
+                    )}
+                    <span className="text-[10px] text-slate-500 ml-2">{n.source}</span>
+                    {ageLabel && (
+                      <span className="text-[10px] text-slate-500 ml-2 whitespace-nowrap">
+                        {ageLabel}
+                        {dateLabel ? ` · ${dateLabel}` : ''}
+                      </span>
+                    )}
+                    {faded && <span className="text-[10px] italic text-slate-500 ml-2 whitespace-nowrap">low relevance</span>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
