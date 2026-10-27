@@ -10,7 +10,8 @@
  * makes the five block weights PARAMETERS and searches the grid:
  *
  *   trend {0,10,25} | RSI {0,5,15} | fundamentals {0,20,35,50}
- *   momentum {0,10,20} | sentiment {0,10,25}   → 324 combos
+ *   momentum {0,10,20} | sentiment {0,10,25}
+ *   growth_ttm {0,10,20} | margin_ttm {0,10,20}                 → 2916 combos
  *
  * Parameterization (per block): points_scale = w_block / default_cap, then the
  * total is renormalized so Σ w_block = 110 (the current total cap). At the
@@ -19,6 +20,18 @@
  * thresholds comparable across combos. Sentiment is always 0 in the backtest
  * (no historical news feed), so its weight only acts through the total-scale
  * renormalization — it cannot be validated here and is reported as such.
+ *
+ * TTM extension (2026-10-27.9 candidate): two additional percentile blocks
+ * built from the quarterly warehouse (facts_quarterly + 10-K FY facts):
+ *   growth_ttm / margin_ttm — rolling-4-quarter revenue growth and net margin,
+ *   computed per ticker AT EACH CHECKPOINT with the filed_at look-ahead guard
+ *   (only facts FILED before the checkpoint are visible; derived Q4 carries
+ *   the 10-K filing date). Each maps a 0-100 sector percentile onto the same
+ *   ±35 points scale the fundamentals composite uses. Grid: {0,10,20} each.
+ * NOTE on honest sample: the quarterly warehouse only stores quarter-ends back
+ * ~40 months (ingest cutoff), so the earliest complete TTM window ends
+ * ~Q1-2024 — TTM factors are testable on roughly the second half of the
+ * 3-year checkpoint range only. Reported per-month coverage in the output.
  *
  * Anti-overfitting: overall / first-half / second-half per-month Spearman are
  * reported SEPARATELY. Only a combo with positive Spearman in BOTH halves and
@@ -29,7 +42,8 @@
  * re-fetch. Nothing here writes to the live warehouse.
  *
  * Usage:  node scripts/weight-search.mjs [--years=3] [--horizon=90] [--top=150] [--refresh]
- * Output: data/weight-search.json + tmp/weight-search-summary.md
+ *                                         [--cache=<path>] [--out=<path>] [--summary=<path>]
+ * Output: data/weight-search.json + tmp/weight-search-summary.md (overridable)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -37,9 +51,15 @@ import { DuckDBInstance } from '@duckdb/node-api';
 
 const ROOT = path.resolve(process.cwd());
 const WAREHOUSE = path.join(ROOT, 'data', 'warehouse.duckdb');
-const OUT = path.join(ROOT, 'data', 'weight-search.json');
-const SUMMARY = path.join(ROOT, 'tmp', 'weight-search-summary.md');
-const CACHE = path.join(ROOT, 'tmp', 'bt-data-cache.json');
+const OUT = path.join(ROOT, getArg2('out', 'data/weight-search.json'));
+const SUMMARY = path.join(ROOT, getArg2('summary', 'tmp/weight-search-summary.md'));
+const CACHE = path.resolve(ROOT, getArg2('cache', 'tmp/bt-data-cache.json'));
+
+// args helper hoisted above OUT/SUMMARY resolution (function declaration hoists)
+function getArg2(name, def) {
+  const hit = process.argv.slice(2).find((a) => a.startsWith(`--${name}=`));
+  return hit ? hit.split('=')[1] : def;
+}
 
 // ---- args ----
 const args = process.argv.slice(2);
@@ -54,17 +74,121 @@ const REFRESH = args.includes('--refresh');
 const DAY_MS = 24 * 3600 * 1000;
 
 // ---- weight grid (block caps in the shipped engine: trend 25, rsi 15, fund 35, mom 10, sent 25) ----
+// growthTtm / marginTtm are NEW percentile blocks (±35 scale like the
+// fundamentals composite) — no shipped cap yet, 35 is their points scale.
 const GRID = {
   trend: [0, 10, 25],
   rsi: [0, 5, 15],
   fund: [0, 20, 35, 50],
   mom: [0, 10, 20],
   sent: [0, 10, 25],
+  growthTtm: [0, 10, 20],
+  marginTtm: [0, 10, 20],
 };
-const DEFAULT_CAPS = { trend: 25, rsi: 15, fund: 35, mom: 10, sent: 25 };
+const DEFAULT_CAPS = { trend: 25, rsi: 15, fund: 35, mom: 10, sent: 25, growthTtm: 35, marginTtm: 35 };
 const TOTAL_SCALE = 110; // current Σ caps — renormalization target
 
-const BASELINE = { trend: 25, rsi: 15, fund: 35, mom: 10, sent: 25 };
+const BASELINE = { trend: 0, rsi: 5, fund: 0, mom: 20, sent: 25, growthTtm: 0, marginTtm: 0 };
+
+// ---- TTM series construction (mirrors scripts/ingest-edgar-quarterly.mjs) ----
+// The quarterly warehouse stores only clean quarterly-duration 10-Q facts
+// (Q1-Q3; Q4 never appears in a 10-Q) with per-row filed_at, and the annual
+// warehouse stores 10-K FY facts. Q4 standalone = FY − (Q1+Q2+Q3) of the same
+// fiscal year; the derived Q4 carries the 10-K filing date (Q1-Q3 were filed
+// earlier), keeping the series look-ahead-free.
+const REVENUE_TAGS_TTM = [
+  'RevenueFromContractWithCustomerExcludingAssessedTax',
+  'RevenueFromContractWithCustomerIncludingAssessedTax',
+  'Revenues',
+  'SalesRevenueNet',
+  'SalesRevenueGoodsNet',
+  'SalesRevenueServicesNet',
+];
+const NET_INCOME_TAGS_TTM = ['NetIncomeLoss', 'ProfitLoss'];
+const DAY_MS_TTM = 24 * 3600 * 1000;
+
+/** Latest-filed visible value per period end for one tag. */
+function latestFiledByEndTtm(rows, asOfMs) {
+  const m = new Map();
+  for (const r of rows) {
+    if (r.filedAt == null || r.filedAt > asOfMs) continue; // look-ahead guard
+    const prev = m.get(r.end);
+    if (!prev || r.filedAt > prev.filedAt) m.set(r.end, r);
+  }
+  return m;
+}
+
+/** Build the per-quarter-end series (Q1-Q3 direct + Q4 derived) for one tag. */
+function quarterlySeriesTtm(qRows, annualRows, tag, asOfMs) {
+  const q = latestFiledByEndTtm(qRows.filter((r) => r.tag === tag), asOfMs);
+  const ann = latestFiledByEndTtm(annualRows.filter((r) => r.tag === tag), asOfMs);
+  const byEnd = new Map();
+  for (const [k, r] of q) byEnd.set(k, { val: r.val, filed: r.filedAt });
+  for (const [k, a] of ann) {
+    if (byEnd.has(k)) continue;
+    // Q4 = FY − (Q1+Q2+Q3): the three quarterly ends immediately before the
+    // fiscal-year end, forming an 80-100-day chain.
+    const priorEnds = [...q.keys()].filter((e) => k - e > 0 && k - e < 280 * DAY_MS_TTM).sort((x, y) => y - x);
+    if (priorEnds.length !== 3) continue;
+    const [e1, e2, e3] = priorEnds;
+    const g1 = (k - e1) / DAY_MS_TTM, g2 = (e1 - e2) / DAY_MS_TTM, g3 = (e2 - e3) / DAY_MS_TTM;
+    if (g1 < 80 || g1 > 100 || g2 < 80 || g2 > 100 || g3 < 80 || g3 > 100) continue;
+    const sum = q.get(e1).val + q.get(e2).val + q.get(e3).val;
+    if (!Number.isFinite(sum)) continue;
+    byEnd.set(k, { val: a.val - sum, filed: a.filedAt });
+  }
+  return byEnd;
+}
+
+/** Sum 4 consecutive quarters ending at ends[i..i+3] (desc order). */
+function ttmWindowTtm(endsDesc, perEnd, startIdx) {
+  if (startIdx + 4 > endsDesc.length) return null;
+  let sum = 0;
+  let maxFiled = null;
+  for (let j = startIdx; j < startIdx + 4; j++) {
+    const rec = perEnd.get(endsDesc[j]);
+    if (!rec) return null;
+    if (j > startIdx) {
+      const gap = (endsDesc[j - 1] - endsDesc[j]) / DAY_MS_TTM;
+      if (gap < 80 || gap > 100) return null;
+    }
+    sum += rec.val;
+    if (rec.filed && (!maxFiled || rec.filed > maxFiled)) maxFiled = rec.filed;
+  }
+  return { sum, maxFiled };
+}
+
+/**
+ * TTM growth/margin visible at asOfMs, from quarterly + annual facts.
+ * Returns { growthTtm, marginTtm } in PERCENT (matches revenueGrowthYoY /
+ * netMargin conventions) or undefined when no clean TTM window is visible.
+ */
+function buildTtmAsOf(qfacts, facts, asOfMs) {
+  // Per-end first-tag-wins across the priority list (mirrors pickPerEnd):
+  const revEnds = new Map();
+  for (const tag of REVENUE_TAGS_TTM) {
+    const s = quarterlySeriesTtm(qfacts, facts, tag, asOfMs);
+    for (const [k, rec] of s) if (!revEnds.has(k)) revEnds.set(k, rec);
+  }
+  const niEnds = new Map();
+  for (const tag of NET_INCOME_TAGS_TTM) {
+    const s = quarterlySeriesTtm(qfacts, facts, tag, asOfMs);
+    for (const [k, rec] of s) if (!niEnds.has(k)) niEnds.set(k, rec);
+  }
+  const endsDesc = [...revEnds.keys()].sort((a, b) => b - a);
+  if (endsDesc.length < 4) return undefined;
+  const cur = ttmWindowTtm(endsDesc, revEnds, 0);
+  if (!cur) return undefined;
+  // Growth needs the PRIOR 4-quarter window (8 quarters of history); margin
+  // needs only the current window — they become visible at different times
+  // and are reported independently.
+  const prior = ttmWindowTtm(endsDesc, revEnds, 4);
+  const niCur = ttmWindowTtm(endsDesc, niEnds, 0);
+  const out = {};
+  if (prior && prior.sum > 0) out.growthTtm = (cur.sum / prior.sum - 1) * 100;
+  if (niCur && cur.sum !== 0) out.marginTtm = (niCur.sum / cur.sum) * 100;
+  return Object.keys(out).length ? out : undefined;
+}
 
 // ---- quant-core mirrors (verbatim from scripts/backtest-verdicts.mjs) ----
 const sma = (v, p) => (v.length < p ? undefined : v.slice(-p).reduce((a, b) => a + b, 0) / p);
@@ -177,12 +301,18 @@ function rawBlockPoints({ price, closes, fundamentals, sectorPercentiles }) {
   }
   const m121 = momentum121(closes);
   const momPts = m121 !== undefined ? Math.max(-10, Math.min(10, m121 * 50)) : 0;
+  // TTM percentile blocks (±35 scale, same machinery as the fundamentals
+  // composite): points = (pctile − 50)/50 × 35, 0 when no TTM percentile.
+  const gTtm = pct.growthTtm;
+  const gtmmPts = gTtm !== undefined ? Math.max(-35, Math.min(35, ((gTtm - 50) / 50) * 35)) : 0;
+  const mTtm = pct.marginTtm;
+  const mtmmPts = mTtm !== undefined ? Math.max(-35, Math.min(35, ((mTtm - 50) / 50) * 35)) : 0;
   // SELL bearish votes (weight-independent, from raw indicators)
   let bearishVotes = 0;
   if (trend === 'down') bearishVotes++;
   if (fundamentals && ((fundamentals.revenueGrowthYoY !== undefined && fundamentals.revenueGrowthYoY < -5) || (fundamentals.netMargin !== undefined && fundamentals.netMargin < 0))) bearishVotes++;
   if (rv !== undefined && rv > 70) bearishVotes++;
-  return { trendPts, rsiPts, fundPts, momPts, hasFund, trend, rv, bearishVotes };
+  return { trendPts, rsiPts, fundPts, momPts, gtmmPts, mtmmPts, hasFund, trend, rv, bearishVotes };
 }
 
 // ---- look-ahead-free fundamentals as-of (verbatim from backtest-verdicts.mjs) ----
@@ -323,13 +453,60 @@ const r3 = (v) => (v == null ? null : Number(v.toFixed(3)));
 const r2 = (v) => (v == null ? null : Number(v.toFixed(2)));
 
 // ============================ data loading ============================
+/** Make sure every universe entry carries qfacts (quarterly 10-Q facts from
+ *  facts_quarterly, the TTM factor source). On a cache hit without them, open
+ *  a warehouse snapshot (single-writer-safe copy), fetch per ticker, patch the
+ *  cache file in place, and return the enriched doc. */
+async function ensureQfacts(doc) {
+  if (doc.universe && Object.values(doc.universe).every((d) => d && d.qfacts !== undefined)) return doc;
+  console.log('Cache lacks quarterly facts — fetching facts_quarterly from a warehouse snapshot...');
+  if (!fs.existsSync(WAREHOUSE)) {
+    console.error('FATAL: warehouse not found — cannot fetch quarterly facts.');
+    process.exit(1);
+  }
+  const snapDir = fs.mkdtempSync(path.join(ROOT, 'data', 'bt-snap-'));
+  const snapshot = path.join(snapDir, 'warehouse.duckdb');
+  fs.copyFileSync(WAREHOUSE, snapshot);
+  const db = await DuckDBInstance.create(snapshot, { access_mode: 'READ_ONLY' });
+  const conn = await db.connect();
+  let n = 0;
+  for (const [ticker, d] of Object.entries(doc.universe)) {
+    const rs = await conn.runAndReadAll(
+      `SELECT fq.tag, fq.end, fq.val, fq.fy, fq.fp, fq.filed_at FROM facts_quarterly fq
+       JOIN companies c ON c.cik = fq.cik WHERE c.ticker = ?`,
+      [ticker]
+    );
+    d.qfacts = rs.getRowObjects().map((r) => ({
+      tag: String(r.tag),
+      end: new Date(String(r.end)).getTime(),
+      filedAt: r.filed_at == null ? null : new Date(String(r.filed_at)).getTime(),
+      val: Number(r.val),
+      fy: r.fy == null ? null : String(r.fy),
+      fp: r.fp == null ? null : String(r.fp),
+    }));
+    if (++n % 100 === 0) console.log(`[qfacts ${n}/${Object.keys(doc.universe).length}]`);
+  }
+  await conn.closeSync();
+  try { fs.rmSync(snapDir, { recursive: true, force: true }); } catch {}
+  try {
+    fs.writeFileSync(CACHE, JSON.stringify(doc));
+    console.log(`Cache patched with qfacts: ${CACHE}`);
+  } catch (e) {
+    console.log(`(cache patch skipped: ${e.message})`);
+  }
+  return doc;
+}
+
 async function loadData() {
   if (!REFRESH && fs.existsSync(CACHE)) {
     try {
       const cached = JSON.parse(fs.readFileSync(CACHE, 'utf8'));
-      if (cached.years === YEARS && cached.top === TOP && cached.horizon === HORIZON) {
+      // horizon is optional in the cache: shared caches written by the other
+      // labs (e.g. tmp/bt-data-cache-600.json from reversal-lab) omit it.
+      if (cached.years === YEARS && cached.top === TOP &&
+          (cached.horizon === undefined || cached.horizon === HORIZON)) {
         console.log(`Data cache hit: ${CACHE} (fetched ${cached.fetchedAt})`);
-        return cached;
+        return await ensureQfacts(cached);
       }
       console.log('Data cache stale (config changed) — refetching.');
     } catch {
@@ -393,7 +570,18 @@ async function loadData() {
         filedAt: r.filed_at == null ? null : new Date(String(r.filed_at)).getTime(),
         val: Number(r.val),
       }));
-      universe[ticker] = { candles: candlesAll, facts, sector: sectorMap.get(ticker) ?? null };
+      const qfactsRs = await conn.runAndReadAll(
+        `SELECT fq.tag, fq.end, fq.val, fq.filed_at FROM facts_quarterly fq
+         JOIN companies c2 ON c2.cik = fq.cik WHERE c2.ticker = ?`,
+        [ticker]
+      );
+      const qfacts = qfactsRs.getRowObjects().map((r) => ({
+        tag: String(r.tag),
+        end: new Date(String(r.end)).getTime(),
+        filedAt: r.filed_at == null ? null : new Date(String(r.filed_at)).getTime(),
+        val: Number(r.val),
+      }));
+      universe[ticker] = { candles: candlesAll, facts, qfacts, sector: sectorMap.get(ticker) ?? null };
     } catch (err) {
       skippedNoData++;
       if (String(err).includes('429')) console.warn('rate-limited; cooling 30s...');
@@ -425,6 +613,7 @@ function buildCheckpoints(data) {
   const latestT = Math.max(...[...tickerData.values()].map((d) => d.candles[d.candles.length - 1].t));
 
   const months = []; // [{monthKey, recs:[{ticker, raw, fwd, spyFwd, alpha}]}]
+  const ttmCoverage = []; // [{monthKey, have, total}] — months with any TTM data
   let totalSignals = 0;
   for (let k = checkpointCount; k >= 1; k--) {
     const checkpointT = latestT - k * monthMs;
@@ -438,7 +627,10 @@ function buildCheckpoints(data) {
       const closes = slice.map((c) => c.close);
       const fundamentals = buildFundamentalsAsOf(d.facts, c0.t);
       if (fundamentals.epsDiluted && fundamentals.epsDiluted > 0) fundamentals.peRatio = c0.close / fundamentals.epsDiluted;
-      snaps.push({ ticker, d, idx, c0, slice, closes, fundamentals, sector: d.sector });
+      // TTM growth/margin as of the checkpoint — quarterly facts gated on the
+      // FILED date (buildTtmAsOf applies the look-ahead guard per row).
+      const ttm = d.qfacts ? buildTtmAsOf(d.qfacts, d.facts, c0.t) : undefined;
+      snaps.push({ ticker, d, idx, c0, slice, closes, fundamentals, ttm, sector: d.sector });
     }
     if (snaps.length < RANK_MIN_UNIVERSE) continue;
 
@@ -447,7 +639,14 @@ function buildCheckpoints(data) {
       margin: crossPercentiles(snaps, (s) => s.fundamentals?.netMargin),
       roe: crossPercentiles(snaps, (s) => s.fundamentals?.roe),
       pe: crossPercentiles(snaps, (s) => s.fundamentals?.peRatio),
+      growthTtm: crossPercentiles(snaps, (s) => s.ttm?.growthTtm),
+      marginTtm: crossPercentiles(snaps, (s) => s.ttm?.marginTtm),
     };
+    // TTM coverage honesty: how much of the snapshot actually has TTM data at
+    // this checkpoint (the quarterly warehouse only reaches back ~40 months).
+    let ttmHave = 0;
+    for (const s of snaps) if (s.ttm?.growthTtm !== undefined) ttmHave++;
+    if (ttmHave) ttmCoverage.push({ monthKey, have: ttmHave, total: snaps.length });
 
     const recs = [];
     for (const s of snaps) {
@@ -471,7 +670,7 @@ function buildCheckpoints(data) {
     if (recs.length) months.push({ monthKey, recs });
   }
   months.sort((a, b) => (a.monthKey < b.monthKey ? -1 : 1));
-  return { months, totalSignals };
+  return { months, totalSignals, ttmCoverage };
 }
 
 // ============================ weight combos ============================
@@ -480,11 +679,13 @@ function* combos() {
     for (const rsi of GRID.rsi)
       for (const fund of GRID.fund)
         for (const mom of GRID.mom)
-          for (const sent of GRID.sent) {
-            const w = { trend, rsi, fund, mom, sent };
-            if (Object.values(w).reduce((a, b) => a + b, 0) <= 0) continue; // all-zero: no signal
-            yield w;
-          }
+          for (const sent of GRID.sent)
+            for (const growthTtm of GRID.growthTtm)
+              for (const marginTtm of GRID.marginTtm) {
+                const w = { trend, rsi, fund, mom, sent, growthTtm, marginTtm };
+                if (Object.values(w).reduce((a, b) => a + b, 0) <= 0) continue; // all-zero: no signal
+                yield w;
+              }
 }
 
 /** Score one observation under weights w (renormalized to TOTAL_SCALE).
@@ -498,12 +699,14 @@ function scoreRaw(raw, w, scale) {
   if (w.rsi) s += (w.rsi / DEFAULT_CAPS.rsi) * raw.rsiPts;
   if (w.fund) s += (w.fund / DEFAULT_CAPS.fund) * raw.fundPts;
   if (w.mom) s += (w.mom / DEFAULT_CAPS.mom) * raw.momPts;
+  if (w.growthTtm) s += (w.growthTtm / DEFAULT_CAPS.growthTtm) * raw.gtmmPts;
+  if (w.marginTtm) s += (w.marginTtm / DEFAULT_CAPS.marginTtm) * raw.mtmmPts;
   // sentiment raw points are 0 in the backtest (no historical feed)
   return s * scale;
 }
 
 function evaluateCombo(months, w, rounded) {
-  const wSum = w.trend + w.rsi + w.fund + w.mom + w.sent;
+  const wSum = w.trend + w.rsi + w.fund + w.mom + w.sent + w.growthTtm + w.marginTtm;
   const scale = TOTAL_SCALE / wSum;
   const perMonth = [];
   const buyByTicker = new Map(); // ticker -> {fwd:[], spy:[]}
@@ -569,12 +772,18 @@ function evaluateCombo(months, w, rounded) {
 async function main() {
   const data = await loadData();
   console.log('Building checkpoint factor table (fetch done — grid is pure arithmetic)...');
-  const { months, totalSignals } = buildCheckpoints(data);
+  const { months, totalSignals, ttmCoverage } = buildCheckpoints(data);
   console.log(`Checkpoints: ${months.length} months, ${totalSignals} scored observations`);
+  if (ttmCoverage.length) {
+    const avgCov = avg(ttmCoverage.map((c) => c.have / c.total));
+    console.log(`TTM coverage: ${ttmCoverage.length}/${months.length} months have TTM data (avg ${Math.round(avgCov * 100)}% of snapshot, first ${ttmCoverage[0].monthKey}, last ${ttmCoverage[ttmCoverage.length - 1].monthKey})`);
+  } else {
+    console.log('TTM coverage: NONE — no checkpoint had a visible TTM window.');
+  }
 
   const results = [];      // EXACT live-engine arithmetic (integer-rounded scores)
   const resultsCont = [];  // unrounded scores (pure ranking quality)
-  const key = (w) => `${w.trend}|${w.rsi}|${w.fund}|${w.mom}|${w.sent}`;
+  const key = (w) => `${w.trend}|${w.rsi}|${w.fund}|${w.mom}|${w.sent}|${w.growthTtm}|${w.marginTtm}`;
   const contByKey = new Map();
   let i = 0;
   for (const w of combos()) {
@@ -607,18 +816,23 @@ async function main() {
     r.avgTopMinusMid > 0;
 
   const adoptionCriteria = {
-    rule: 'CLUSTER-robust: combos whose exact-tie cluster (differing only in blocks with identically-zero raw contribution — sentiment here) has positive mean Spearman in BOTH halves under the engine-exact rounded scorer for EVERY variant, plus the same criteria under the unrounded scorer; overall Spearman >= baseline + 0.10 and top-quintile-minus-middle > 0. Rationale: variants that differ only in a zero-contribution block are the same ranking up to rounding tie-breaks — if the OOS sign depends on which variant you pick, it is not robust.',
+    rule: 'CLUSTER-robust: combos whose exact-tie cluster (differing only in blocks with identically-zero raw contribution — sentiment here) has positive mean Spearman in BOTH halves under the engine-exact rounded scorer for EVERY variant, plus the same criteria under the unrounded scorer; overall Spearman >= baseline + 0.10 and top-quintile-minus-middle > 0. The growth_ttm/margin_ttm blocks have NONZERO raw contribution in TTM-covered months, so variants differing in them are NOT exact ties — each must earn adoption on its own metrics; the winner additionally requires its neighbor variants (other grid levels of the same TTM blocks) to be reported for sign consistency. Rationale: variants that differ only in a zero-contribution block are the same ranking up to rounding tie-breaks — if the OOS sign depends on which variant you pick, it is not robust.',
     baselineOverallSpearman: r3(baseline?.avgSpearman),
     baselineFirstHalf: r3(baseline?.firstHalfSpearman),
     baselineSecondHalf: r3(baseline?.secondHalfSpearman),
     baselineTopMinusMid: r2(baseline?.avgTopMinusMid),
   };
-  // Group into exact-tie clusters by (trend, rsi, fund, mom).
+  // Group into exact-tie clusters by every block EXCEPT sentiment (the only
+  // identically-zero-contribution block in this backtest).
   const clusters = new Map(); // clusterKey -> { members: [rounded results], cont }
   for (const r of results) {
-    const ck = `${r.weights.trend}|${r.weights.rsi}|${r.weights.fund}|${r.weights.mom}`;
-    if (!clusters.has(ck)) clusters.set(ck, { members: [], cont: contByKey.get(`${ck}|0`) });
+    const ck = `${r.weights.trend}|${r.weights.rsi}|${r.weights.fund}|${r.weights.mom}|${r.weights.growthTtm}|${r.weights.marginTtm}`;
+    if (!clusters.has(ck)) clusters.set(ck, { members: [] });
     clusters.get(ck).members.push(r);
+  }
+  for (const c of clusters.values()) {
+    const sqMember = c.members.find((m) => m.weights.sent === BASELINE.sent) ?? c.members[0];
+    c.cont = contByKey.get(key(sqMember.weights));
   }
   const passingClusters = [...clusters.values()]
     .filter((c) => c.cont && meetsCriteria(c.cont, baseline) && c.members.every((m) => m.firstHalfSpearman > 0 && m.secondHalfSpearman > 0))
@@ -654,12 +868,39 @@ async function main() {
     }
   }
 
-  const fmtW = (w) => `trend ${w.trend} / rsi ${w.rsi} / fund ${w.fund} / mom ${w.mom} / sent ${w.sent}`;
+  // Factor verdict from the marginal means: monotone fall with weight = dead,
+  // monotone rise = alive, otherwise neutral (no consistent direction).
+  const factorVerdict = Object.entries(factorLevels).map(([block, levels]) => {
+    const vals = Object.entries(levels).map(([lvl, v]) => [Number(lvl), v?.meanSpearman]).filter(([, v]) => v != null);
+    if (vals.length < 2) return { block, verdict: 'untestable' };
+    vals.sort((a, b) => a[0] - b[0]);
+    const diffs = vals.slice(1).map((v, i) => v[1] - vals[i][1]);
+    const allUp = diffs.every((x) => x > 0);
+    const allDown = diffs.every((x) => x < 0);
+    const spread = vals[vals.length - 1][1] - vals[0][1];
+    const verdict = allDown && spread < -0.01 ? 'DEAD (anti-predictive: mean Spearman falls monotonically with weight)'
+      : allUp && spread > 0.01 ? 'ALIVE (mean Spearman rises monotonically with weight)'
+      : 'NEUTRAL/FLAT (no consistent ranking contribution)';
+    return { block, verdict, levels: Object.fromEntries(vals.map(([l, v]) => [l, r3(v)])) };
+  });
+
+  const fmtW = (w) => `trend ${w.trend} / rsi ${w.rsi} / fund ${w.fund} / mom ${w.mom} / sent ${w.sent} / gtmm ${w.growthTtm} / mtmm ${w.marginTtm}`;
   const doc = {
     generatedAt: new Date().toISOString(),
-    config: { years: YEARS, horizonDays: HORIZON, top: TOP, grid: GRID, totalScale: TOTAL_SCALE, parameterization: 'block points scaled by w/shipCap, total renormalized to 110; sentiment raw = 0 in backtest (no historical feed)', dataCache: CACHE, signals: totalSignals, checkpoints: months.length },
+    config: {
+      years: YEARS, horizonDays: HORIZON, top: TOP, grid: GRID, totalScale: TOTAL_SCALE,
+      parameterization: 'block points scaled by w/shipCap, total renormalized to 110; sentiment raw = 0 in backtest (no historical feed); growth_ttm/margin_ttm are single-factor sector-percentile blocks on the ±35 scale, TTM computed per checkpoint from facts_quarterly + 10-K FY facts with the filed_at look-ahead guard',
+      dataCache: CACHE, signals: totalSignals, checkpoints: months.length,
+      ttmCoverage: {
+        monthsWithTtm: ttmCoverage.length,
+        avgShareOfSnapshot: ttmCoverage.length ? +avg(ttmCoverage.map((c) => c.have / c.total)).toFixed(3) : 0,
+        firstMonth: ttmCoverage[0]?.monthKey ?? null,
+        lastMonth: ttmCoverage[ttmCoverage.length - 1]?.monthKey ?? null,
+        detail: ttmCoverage,
+      },
+    },
     adoptionCriteria,
-    baseline: baseline ? { ...baseline, avgSpearman: r3(baseline.avgSpearman), avgTopMinusMid: r2(baseline.avgTopMinusMid), firstHalfSpearman: r3(baseline.firstHalfSpearman), secondHalfSpearman: r3(baseline.secondHalfSpearman), buyTickerAlphaMean: r2(baseline.buyTickerAlphaMean), buyCi95: baseline.buyCi95?.map(r2) } : null,
+    baseline: baseline ? { ...baseline, avgSpearman: r3(baseline.avgSpearman), avgTopMinusMid: r2(baseline.avgTopMinusMid), firstHalfSpearman: r3(baseline.firstHalfSpearman), secondHalfSpearman: r3(baseline.secondHalfSpearman), buyTickerAlphaMean: r2(baseline.buyTickerAlphaMean), buyCi95: baseline.buyCi95?.map(r2), positiveShare: baseline.positiveShare == null ? null : +baseline.positiveShare.toFixed(1) } : null,
     top10: sorted.slice(0, 10).map((r) => {
       const cont = contByKey.get(key(r.weights));
       return {
@@ -677,12 +918,13 @@ async function main() {
     mostOosRobustCandidate: mostRobustMember ? { weights: mostRobustMember.weights, avgSpearman: r3(mostRobust.cont.avgSpearman), firstHalfSpearman: r3(mostRobust.cont.firstHalfSpearman), secondHalfSpearman: r3(mostRobust.cont.secondHalfSpearman), avgTopMinusMid: r2(mostRobust.cont.avgTopMinusMid) } : null,
     candidatesMeetingCriteria: candidates.length,
     factorMarginalMeans: factorLevels,
+    factorVerdict,
     allResults: results.map((r) => ({
-      w: [r.weights.trend, r.weights.rsi, r.weights.fund, r.weights.mom, r.weights.sent],
+      w: [r.weights.trend, r.weights.rsi, r.weights.fund, r.weights.mom, r.weights.sent, r.weights.growthTtm, r.weights.marginTtm],
       sp: r3(r.avgSpearman), tmm: r2(r.avgTopMinusMid), h1: r3(r.firstHalfSpearman), h2: r3(r.secondHalfSpearman), buy: r2(r.buyTickerAlphaMean),
     })),
     allResultsUnrounded: resultsCont.map((r) => ({
-      w: [r.weights.trend, r.weights.rsi, r.weights.fund, r.weights.mom, r.weights.sent],
+      w: [r.weights.trend, r.weights.rsi, r.weights.fund, r.weights.mom, r.weights.sent, r.weights.growthTtm, r.weights.marginTtm],
       sp: r3(r.avgSpearman), tmm: r2(r.avgTopMinusMid), h1: r3(r.firstHalfSpearman), h2: r3(r.secondHalfSpearman),
     })),
   };
@@ -698,17 +940,18 @@ async function main() {
   }).join('\n');
   const md = `# Verdict factor-weight search — ${doc.generatedAt}
 
-Config: ${YEARS}y backtest, ${HORIZON}d horizon, top ${TOP} universe, ${months.length} months × ${totalSignals} observations, ${results.length} combos.
+Config: ${YEARS}y backtest, ${HORIZON}d horizon, top ${TOP} universe, ${months.length} months × ${totalSignals} observations, ${results.length} combos (7-block grid incl. growth_ttm / margin_ttm).
 Parameterization: block points scaled by w/shipCap, total renormalized to 110 (current weights reproduce the shipped engine exactly). Sentiment raw points are 0 in the backtest (no historical news feed) — its weight cannot be validated here.
+TTM factors: growth_ttm / margin_ttm are rolling-4-quarter revenue growth / net margin, computed per checkpoint from facts_quarterly + 10-K FY facts with the filed_at look-ahead guard (only facts FILED before the checkpoint are visible; derived Q4 carries the 10-K filing date). Coverage honesty: ${ttmCoverage.length}/${months.length} months have any TTM data (quarterly warehouse reaches back ~40 months), avg ${doc.config.ttmCoverage.avgShareOfSnapshot * 100}% of the snapshot per covered month — TTM blocks are silent before the first covered month.
 
 ## Baseline (current weights: ${fmtW(BASELINE)})
 - Overall mean Spearman: **${doc.baseline?.avgSpearman}** (median ${doc.baseline?.medianSpearman}, positive in ${doc.baseline?.positiveShare}% of months)
-- First half: ${doc.baseline?.firstHalfSpearman} | Second half: ${doc.baseline?.secondHalfSpearman} → halves DISAGREE
+- First half: ${doc.baseline?.firstHalfSpearman} | Second half: ${doc.baseline?.secondHalfSpearman}
 - Top − middle quintile alpha: ${doc.baseline?.avgTopMinusMid}% per month
 - BUY 90d alpha (ticker-level mean): ${doc.baseline?.buyTickerAlphaMean}% CI95 ${doc.baseline?.buyCi95?.join('%, ')}%
 
 ## Top 10 combos by mean Spearman
-| # | ${'trend / rsi / fund / mom / sent'} | Spearman | top−mid | H1 Spearman | H2 Spearman | BUY 90d α [CI] | note |
+| # | ${'trend / rsi / fund / mom / sent / gtmm / mtmm'} | Spearman | top−mid | H1 Spearman | H2 Spearman | BUY 90d α [CI] | note |
 |---|---|---|---|---|---|---|---|
 ${rows}
 
@@ -717,10 +960,14 @@ ${rows}
 |---|---|
 ${factorRows}
 
+## Factor verdict (from marginal means)
+${factorVerdict.map((v) => `- **${v.block}**: ${v.verdict}`).join('\n')}
+
 ## Recommendation
 ${winner
     ? `**ADOPT**: ${fmtW(winner.weights)} — overall Spearman ${r3(winner.avgSpearman)} (baseline ${doc.baseline?.avgSpearman}), H1 ${r3(winner.firstHalfSpearman)} / H2 ${r3(winner.secondHalfSpearman)} (both positive), top−mid ${r2(winner.avgTopMinusMid)}%. Its exact-tie cluster holds both halves POSITIVE under the engine-exact rounded scorer for every variant AND under the unrounded scorer (unrounded: overall ${r3(winnerCont?.avgSpearman)}, H1 ${r3(winnerCont?.firstHalfSpearman)}, H2 ${r3(winnerCont?.secondHalfSpearman)}). ${candidates.length} cluster(s) met the cluster-robust criteria.`
-    : `**NO CHANGE**: no combo met the adoption criteria under the cluster-robust evaluation (${adoptionCriteria.rule}). ${candidates.length} of ${results.length ? Math.ceil(results.length / 3) : 0} clusters qualified. The honest result is that the current weights are not meaningfully beatable on this data — see factor marginal means for which blocks look dead.`}
+    : `**NO CHANGE**: no combo met the adoption criteria under the cluster-robust evaluation (${adoptionCriteria.rule}). ${candidates.length} of ${clusters.size} clusters qualified. The honest result is that the current weights are not meaningfully beatable on this data — see factor marginal means for which blocks look dead.
+${sorted.length && sorted[0] && !winner ? `\nClosest miss: the highest-Spearman combo (${fmtW(sorted[0].weights)}, Spearman ${r3(sorted[0].avgSpearman)}, H1 ${r3(sorted[0].firstHalfSpearman)} / H2 ${r3(sorted[0].secondHalfSpearman)}) FAILS the quintile-monotonicity requirement — top−middle = ${r2(sorted[0].avgTopMinusMid)}% (top quintile at/below the middle means the score does not rank the top of the book correctly, regardless of the overall correlation). It buys its correlation by zeroing momentum (${sorted[0].weights.mom === 0 ? 'mom 0' : `mom ${sorted[0].weights.mom}`}) and loading growth_ttm — not adoptable under the shipped rule.` : ''}`}
 
 ${winner && mostRobustMember && JSON.stringify(mostRobustMember.weights) !== JSON.stringify(winner.weights)
     ? `\nMost OOS-robust criteria-meeting cluster (highest unrounded second-half Spearman): **${fmtW(mostRobustMember.weights)}** — overall ${r3(mostRobust.cont.avgSpearman)}, H1 ${r3(mostRobust.cont.firstHalfSpearman)} / H2 ${r3(mostRobust.cont.secondHalfSpearman)}, top−mid ${r2(mostRobust.cont.avgTopMinusMid)}%.`
@@ -728,9 +975,10 @@ ${winner && mostRobustMember && JSON.stringify(mostRobustMember.weights) !== JSO
 
 Tie-break note: sentiment-variant combos tie EXACTLY on all rank metrics (sentiment raw points are 0 in this backtest); among exact ties the search prefers the CURRENT weight value — sentiment cannot be measured here, so it is not changed on noise-level BUY-alpha differences.
 
-Dead-factor evidence (factor marginal means): fundamentals hurts monotonically (weight 0 → +0.087 mean Spearman, 20 → −0.047, 35 → −0.085, 50 → −0.124); momentum helps monotonically (0 → −0.084, 10 → −0.041, 20 → −0.003); RSI helps at full weight (15 → +0.006 vs 0 → −0.086); trend is flat (≈ −0.04 at every level).
+Dead-factor evidence (factor marginal means — mean overall Spearman across all combos at each weight level; monotone falls with weight = dead factor, rises = alive):
+${Object.entries(factorLevels).map(([block, levels]) => `- ${block}: ${Object.entries(levels).map(([lvl, v]) => `${lvl} → ${v ? v.meanSpearman : 'n/a'}`).join(', ')}`).join('\n')}
 
-Guardrails: in-sample (first half) vs OOS (second half) Spearman reported separately; adoption requires sign agreement in BOTH halves. Sentiment is untestable in this backtest.
+Guardrails: in-sample (first half) vs OOS (second half) Spearman reported separately; adoption requires sign agreement in BOTH halves. Sentiment is untestable in this backtest. TTM factors are only measurable in TTM-covered months (see coverage above) — a TTM-based winner rests on a shorter OOS sample, say so when reporting.
 `;
   fs.writeFileSync(SUMMARY, md);
 
@@ -739,4 +987,10 @@ Guardrails: in-sample (first half) vs OOS (second half) Spearman reported separa
   console.log(`Saved: ${OUT}\nSaved: ${SUMMARY}`);
 }
 
-main().catch((e) => { console.error('FATAL:', e); process.exit(1); });
+// Run only when executed directly (importable as a lib for probes/tests).
+import { fileURLToPath as _f2p } from 'node:url';
+if (process.argv[1] && _f2p(import.meta.url) === path.resolve(process.argv[1])) {
+  main().catch((e) => { console.error('FATAL:', e); process.exit(1); });
+}
+
+export { buildTtmAsOf, quarterlySeriesTtm, ttmWindowTtm, REVENUE_TAGS_TTM, NET_INCOME_TAGS_TTM };
