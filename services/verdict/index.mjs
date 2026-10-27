@@ -105,6 +105,23 @@ async function callPeer(name, path, { ctx, method = 'GET', body = null, timeoutM
   return res.json;
 }
 
+/**
+ * Best-effort cost-ledger hit: POST one zero-cost cached_hit row to svc-llm
+ * (/usage-record) when a verdict was served from the research cache. Failures
+ * are swallowed — the ledger must never degrade the verdict path, and
+ * llm-usage.db stays single-writer (svc-llm only).
+ */
+async function logResearchCacheHit(symbol, ctx) {
+  try {
+    const base = await resolveService('llm', ctx);
+    await httpClient.fetch(`${base}/usage-record`, {
+      ctx, span: 'verdict.llm.usage-record', method: 'POST',
+      body: { symbol, context: 'verdict', cachedHit: true },
+      timeoutMs: 3000, log: appLog,
+    });
+  } catch { /* ledger is best-effort */ }
+}
+
 // ---- Orchestrator (port of aiVerdictService.generateVerdict) --------------
 // opts.depth: 'full' (default) = news + cached LLM narrative + ensemble.
 //             'quant'          = deterministic score/levels ONLY — no news, no
@@ -287,6 +304,10 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       // cached verdict reports that historical spend, not $0.
       llmUsage = cached.usage || null;
       researchFromCache = true;
+      // Cost ledger: a research-cache HIT saved a full ensemble run — log a
+      // zero-cost row at svc-llm (best-effort, never blocks the response) so
+      // the Costs tab can quantify the saving.
+      void logResearchCacheHit(clean, ctx);
     } else if (inflight) {
       const shared = await inflight.catch(() => null);
       if (shared) {
@@ -314,6 +335,9 @@ async function generateVerdict(symbol, ctx, opts = {}) {
               // every model writes from the same numbers the UI shows.
               quantBreakdown: quant.breakdown,
               grounding: 'every number you state must come from the provided data; do not invent figures',
+              // Cost-ledger attribution: rows land in svc-llm's llm-usage.db
+              // under context 'verdict' (per-symbol Costs tab view).
+              context: 'verdict',
             },
             timeoutMs: 90_000,
           });

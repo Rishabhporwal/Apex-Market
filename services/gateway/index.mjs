@@ -178,6 +178,13 @@ app.all('/api/*', async (req, reply) => {
   } else if (url.startsWith('/api/verdict') || url.startsWith('/api/daily-report')) {
     serviceName = 'verdict';
     downstreamPath = url.replace(/^\/api\/verdict/, '/verdict').replace(/^\/api\/daily-report/, '/daily-report');
+  } else if (url.startsWith('/api/llm-usage')) {
+    // LLM cost/token ledger (svc-llm GET /usage) — Costs tab data source.
+    // Must match before /api/llm/ semantics are consulted; the prefix differs
+    // ('/api/llm-usage' vs '/api/llm/') but keep intent explicit.
+    serviceName = 'llm';
+    const qIdx = url.indexOf('?');
+    downstreamPath = `/usage${qIdx >= 0 ? url.slice(qIdx) : ''}`;
   } else if (url.startsWith('/api/llm/')) {
     serviceName = 'llm';
     downstreamPath = url.replace(/^\/api\/llm/, '');

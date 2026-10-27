@@ -8,6 +8,9 @@
  *
  * The API key is read from the environment only; it is never logged or echoed.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { startService, loadEnvLocal, httpClient, logger } from '../shared/lib.mjs';
 import { resolveService } from '../shared/discovery.mjs';
 import { getTechnicalSummary } from '../shared/technical.mjs';
@@ -20,6 +23,62 @@ const DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
 // route-level warn/info (ensemble failures, OpenRouter errors) were silently
 // swallowed. Route handlers log through this real service logger instead.
 const svcLog = logger('svc-llm');
+
+// ---- Usage ledger (SQLite at data/llm-usage.db) ------------------------------
+// svc-llm OWNS llm-usage.db (single-writer rule, ADR-001): every billable
+// OpenRouter call appends one row here. svc-verdict reports research-cache
+// HITS via POST /usage-record (zero-cost rows) instead of writing the file
+// itself, so this service stays the only writer. Rows power GET /usage —
+// daily totals, per-symbol totals, recent calls — surfaced by the Costs tab.
+const USAGE_DATA_DIR = process.env.DATA_DIR
+  ? process.env.DATA_DIR
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../data');
+const USAGE_DB_PATH = path.join(USAGE_DATA_DIR, 'llm-usage.db');
+let usageDb = null;
+let insertUsageStmt = null;
+try {
+  const Database = (await import('better-sqlite3')).default;
+  fs.mkdirSync(USAGE_DATA_DIR, { recursive: true });
+  usageDb = new Database(USAGE_DB_PATH);
+  usageDb.pragma('journal_mode = WAL');
+  usageDb.pragma('synchronous = NORMAL');
+  usageDb.exec(`
+    CREATE TABLE IF NOT EXISTS llm_usage (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts                INTEGER NOT NULL,          -- epoch ms
+      symbol            TEXT,                      -- null when not symbol-scoped
+      context           TEXT NOT NULL,             -- narrative|ensemble|verdict|research|filing-qa|daily-report
+      model             TEXT NOT NULL,
+      prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      est_cost_usd      REAL NOT NULL DEFAULT 0,
+      cached_hit        INTEGER NOT NULL DEFAULT 0 -- 1 = zero-cost research-cache hit
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts);
+    CREATE INDEX IF NOT EXISTS idx_llm_usage_symbol ON llm_usage(symbol);
+  `);
+  // CREATE TABLE IF NOT EXISTS does not alter pre-existing tables — probe
+  // pragma first (same pattern as svc-userdata's ensureColumn).
+  const usageCols = () => usageDb.prepare('PRAGMA table_info(llm_usage)').all().map((c) => c.name);
+  if (!usageCols().includes('cached_hit')) usageDb.exec('ALTER TABLE llm_usage ADD COLUMN cached_hit INTEGER NOT NULL DEFAULT 0');
+  insertUsageStmt = usageDb.prepare(`
+    INSERT INTO llm_usage (ts, symbol, context, model, prompt_tokens, completion_tokens, est_cost_usd, cached_hit)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+} catch (err) {
+  // Ledger failure must never break the LLM path — /usage degrades to empty.
+  svcLog.warn({ msg: `llm-usage.db unavailable, usage rows will not persist: ${err.message}` });
+}
+
+/** Append one usage row; best-effort (DB errors are logged, never thrown). */
+function recordUsageRow({ symbol = null, context = 'narrative', model, promptTokens = 0, completionTokens = 0, costUsd = 0, cachedHit = false }) {
+  if (!insertUsageStmt) return;
+  try {
+    insertUsageStmt.run(Date.now(), symbol || null, String(context), String(model), Math.round(promptTokens) || 0, Math.round(completionTokens) || 0, Number(costUsd) || 0, cachedHit ? 1 : 0);
+  } catch (err) {
+    svcLog.warn({ msg: `usage row insert failed: ${err.message}` });
+  }
+}
 
 /** Per-model cost counters: calls, tokens in/out, rough $ estimate. */
 const costCounters = new Map(); // model -> {calls, promptTokens, completionTokens, estimatedCostUsd}
@@ -106,7 +165,18 @@ async function callOpenRouterModel(data, apiKey, model, log) {
   if (!res.ok) throw new Error(`OpenRouter API error: ${res.status} ${res.statusText}`);
   const json = await res.json();
   const text = json.choices?.[0]?.message?.content || '';
-  recordCost(model, json.usage?.prompt_tokens, json.usage?.completion_tokens);
+  const usage = json.usage || {};
+  recordCost(model, usage.prompt_tokens, usage.completion_tokens);
+  // Persist the per-call row (context identifies the calling feature —
+  // verdict/narrative/ensemble/research — symbol scopes the per-stock view).
+  recordUsageRow({
+    symbol: data.symbol,
+    context: data.context || 'narrative',
+    model,
+    promptTokens: usage.prompt_tokens,
+    completionTokens: usage.completion_tokens,
+    costUsd: costOf(model, usage.prompt_tokens, usage.completion_tokens),
+  });
   log.info({ msg: `openrouter call ok`, model });
 
   const modelName = json.model || model;
@@ -184,7 +254,7 @@ async function runDeepAnalysis(data, log, customKey) {
  * records cost, throws on failure. The key is used in the Authorization header
  * only — never logged or echoed.
  */
-async function callOpenRouterChat(messages, apiKey, model, log, { temperature = 0.2, maxTokens = 1500, timeoutMs = 60_000 } = {}) {
+async function callOpenRouterChat(messages, apiKey, model, log, { temperature = 0.2, maxTokens = 1500, timeoutMs = 60_000, meta = null } = {}) {
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -200,9 +270,20 @@ async function callOpenRouterChat(messages, apiKey, model, log, { temperature = 
   if (!res.ok) throw new Error(`OpenRouter API error: ${res.status} ${res.statusText}`);
   const json = await res.json();
   const text = json.choices?.[0]?.message?.content || '';
-  recordCost(model, json.usage?.prompt_tokens, json.usage?.completion_tokens);
+  const usage = json.usage || {};
+  recordCost(model, usage.prompt_tokens, usage.completion_tokens);
+  if (meta) {
+    recordUsageRow({
+      symbol: meta.symbol,
+      context: meta.context || 'filing-qa',
+      model,
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+      costUsd: costOf(model, usage.prompt_tokens, usage.completion_tokens),
+    });
+  }
   log.info({ msg: `openrouter call ok`, model });
-  return { text, modelUsed: json.model || model };
+  return { text, modelUsed: json.model || model, usage: { promptTokens: usage.prompt_tokens ?? 0, completionTokens: usage.completion_tokens ?? 0, costUsd: costOf(model, usage.prompt_tokens, usage.completion_tokens) } };
 }
 
 // ---- Multi-model ensemble: parallel run across models, majority vote on verdict ----
@@ -254,6 +335,7 @@ app.post('/narrate', async (req, reply) => {
     keyFinancials: b.keyFinancials || {},
     quantBreakdown: b.quantBreakdown || null,
     grounding: typeof b.grounding === 'string' ? b.grounding : '',
+    context: 'narrative',
   };
   try {
     const out = await runDeepAnalysis(data, svcLog);
@@ -281,6 +363,9 @@ app.post('/ensemble', async (req, reply) => {
     keyFinancials: b.keyFinancials || {},
     quantBreakdown: b.quantBreakdown || null,
     grounding: typeof b.grounding === 'string' ? b.grounding : '',
+    // Cost-ledger context: svc-verdict tags its ensemble calls 'verdict' so the
+    // per-symbol view attributes them; direct ensemble callers default to 'ensemble'.
+    context: String(b.context || 'ensemble'),
   };
   const log = svcLog;
 
@@ -403,6 +488,7 @@ app.post('/research', async (req, reply) => {
     newsHeadlines: (sentiment?.news || []).map((n) => n.title),
     keyFinancials: keyFin || {},
     userQuery: b.query,
+    context: 'research',
   };
 
   try {
@@ -484,7 +570,7 @@ app.post('/filing-qa', async (req, reply) => {
         apiKey,
         model,
         log,
-        { temperature: 0.2, maxTokens: 1200, timeoutMs: 100_000 },
+        { temperature: 0.2, maxTokens: 1200, timeoutMs: 100_000, meta: { symbol, context: 'filing-qa' } },
       );
       answer = out.text;
     } catch (err) {
@@ -507,6 +593,129 @@ app.post('/filing-qa', async (req, reply) => {
       excerpt: c.text.slice(0, 200),
     })),
     filing: { form: ctx.form, filedAt: ctx.filedAt, url: ctx.filingUrl },
+  };
+});
+
+// POST /usage-record — cache-hit bookkeeping from svc-verdict. When a verdict
+// is served from the 24h research cache (researchCached:true), verdict posts
+// one zero-cost row here so the Costs tab can show cache savings without
+// verdict ever writing llm-usage.db itself (single-writer rule). Best-effort
+// on the caller's side; missing/invalid fields are rejected with 400.
+app.post('/usage-record', async (req, reply) => {
+  const b = req.body || {};
+  const symbol = String(b.symbol || '').trim().toUpperCase();
+  if (!symbol) return reply.status(400).send({ error: 'symbol is required' });
+  if (!insertUsageStmt) return reply.status(503).send({ error: 'usage ledger unavailable' });
+  recordUsageRow({
+    symbol,
+    context: String(b.context || 'verdict'),
+    model: String(b.model || 'research-cache-hit'),
+    promptTokens: Number(b.promptTokens) || 0,
+    completionTokens: Number(b.completionTokens) || 0,
+    costUsd: Number(b.costUsd) || 0,
+    cachedHit: b.cachedHit !== false,
+  });
+  return { ok: true };
+});
+
+const USAGE_WINDOW_DAYS = [1, 7, 30];
+
+/**
+ * GET /usage?days=N&symbol=X — cost/token ledger for the Costs tab.
+ * Returns daily totals (date, calls, tokens, $, cached hits), per-symbol
+ * totals (analyses, tokens, $, last analyzed), the recent-calls tail, and
+ * summary windows (today / 7d / 30d) with an estimated cache saving
+ * (cached hits × avg cost of a fresh analysis in the same window).
+ * Gateway route: /api/llm-usage. `days` caps the daily series (default 30, max 365).
+ */
+app.get('/usage', async (req) => {
+  const days = Math.min(Math.max(Number.parseInt(req.query.days, 10) || 30, 1), 365);
+  const symbol = String(req.query.symbol || '').trim().toUpperCase() || null;
+  const emptyWindow = { calls: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0, costUsd: 0, cachedHits: 0, freshCalls: 0, avgFreshCostUsd: 0, estSavedUsd: 0 };
+  if (!usageDb) {
+    return { ok: true, days, symbol, ledgerAvailable: false, totals: Object.fromEntries(USAGE_WINDOW_DAYS.map((d) => [d === 1 ? 'today' : `d${d}`, emptyWindow])), daily: [], bySymbol: [], recent: [] };
+  }
+
+  const sinceMs = (d) => Date.now() - d * 24 * 60 * 60 * 1000;
+  const symFilter = symbol ? 'AND symbol = ?' : '';
+  const symArgs = symbol ? [symbol] : [];
+
+  // Local-time day bucketing so "today" matches the operator's wall clock.
+  const daily = usageDb.prepare(`
+    SELECT date(ts / 1000, 'unixepoch', 'localtime') AS date,
+           COUNT(*) AS calls,
+           SUM(prompt_tokens) AS promptTokens,
+           SUM(completion_tokens) AS completionTokens,
+           SUM(est_cost_usd) AS costUsd,
+           SUM(cached_hit) AS cachedHits,
+           SUM(CASE WHEN cached_hit = 0 THEN 1 ELSE 0 END) AS freshCalls
+    FROM llm_usage
+    WHERE ts >= ? ${symFilter}
+    GROUP BY date ORDER BY date ASC
+  `).all(sinceMs(days), ...symArgs);
+
+  const bySymbol = usageDb.prepare(`
+    SELECT symbol,
+           COUNT(*) AS analyses,
+           SUM(prompt_tokens + completion_tokens) AS tokens,
+           SUM(est_cost_usd) AS costUsd,
+           SUM(cached_hit) AS cachedHits,
+           MAX(ts) AS lastAnalyzed
+    FROM llm_usage
+    WHERE ts >= ? AND symbol IS NOT NULL ${symFilter}
+    GROUP BY symbol ORDER BY costUsd DESC
+  `).all(sinceMs(days), ...symArgs);
+
+  const recent = usageDb.prepare(`
+    SELECT ts, symbol, context, model, prompt_tokens AS promptTokens,
+           completion_tokens AS completionTokens, est_cost_usd AS costUsd, cached_hit AS cachedHit
+    FROM llm_usage ${symbol ? 'WHERE symbol = ?' : ''}
+    ORDER BY ts DESC LIMIT 50
+  `).all(...symArgs);
+
+  const totals = {};
+  for (const d of USAGE_WINDOW_DAYS) {
+    const w = usageDb.prepare(`
+      SELECT COUNT(*) AS calls,
+             SUM(prompt_tokens) AS promptTokens,
+             SUM(completion_tokens) AS completionTokens,
+             SUM(est_cost_usd) AS costUsd,
+             SUM(cached_hit) AS cachedHits,
+             SUM(CASE WHEN cached_hit = 0 THEN est_cost_usd ELSE 0 END) AS freshCostUsd,
+             SUM(CASE WHEN cached_hit = 0 THEN 1 ELSE 0 END) AS freshCalls
+      FROM llm_usage
+      WHERE ts >= ? ${symFilter}
+    `).get(sinceMs(d), ...symArgs);
+    const freshCalls = w.freshCalls || 0;
+    const freshCostUsd = w.freshCostUsd || 0;
+    const cachedHits = w.cachedHits || 0;
+    const avgFreshCostUsd = freshCalls > 0 ? freshCostUsd / freshCalls : 0;
+    totals[d === 1 ? 'today' : `d${d}`] = {
+      calls: w.calls || 0,
+      promptTokens: w.promptTokens || 0,
+      completionTokens: w.completionTokens || 0,
+      totalTokens: (w.promptTokens || 0) + (w.completionTokens || 0),
+      costUsd: Number((w.costUsd || 0).toFixed(6)),
+      cachedHits,
+      freshCalls,
+      avgFreshCostUsd: Number(avgFreshCostUsd.toFixed(6)),
+      estSavedUsd: Number((cachedHits * avgFreshCostUsd).toFixed(6)),
+    };
+  }
+
+  const round = (rows, keys) => rows.map((r) => {
+    for (const k of keys) if (typeof r[k] === 'number') r[k] = Number(r[k].toFixed(6));
+    return r;
+  });
+  return {
+    ok: true,
+    days,
+    symbol,
+    ledgerAvailable: true,
+    totals,
+    daily: round(daily, ['costUsd']),
+    bySymbol: round(bySymbol, ['costUsd']),
+    recent: round(recent, ['costUsd']),
   };
 });
 

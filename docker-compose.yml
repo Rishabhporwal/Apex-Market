@@ -169,6 +169,11 @@ services:
     <<: *svc-defaults
     build: { context: ., dockerfile: docker/Dockerfile.service, args: { SVC: llm } }
     container_name: tradexa-llm
+    volumes:
+      # Read-WRITE: llm owns data/llm-usage.db (cost/token ledger, Costs tab).
+      # It never opens any .duckdb file, so the DuckDB single-writer rule is
+      # unaffected.
+      - ./data:/app/data
     env_file:
       - .env.local                    # OPENROUTER_API_KEY — llm is the ONLY service that needs it
     environment:

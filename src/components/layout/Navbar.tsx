@@ -1,42 +1,67 @@
 'use client';
 
+/**
+ * AppShell — Tradexa chrome: VERTICAL SIDEBAR navigation (left, white, 1px
+ * slate-200 right border) + slim top strip (ticker tape) + top bar (search,
+ * AI models, active symbol). Same 2026 light minimal design language.
+ *
+ * Layout: the sidebar (w-56) is hidden below the lg breakpoint (~1024px) —
+ * narrow viewports get a horizontally scrollable nav strip under the top bar
+ * instead (auto-hide, nothing is lost). Quick-ticker chips live at the sidebar
+ * bottom on wide screens. All tabs (incl. 💰 Costs), search and its
+ * autocomplete stay reachable.
+ */
 import React, { useState, useEffect } from 'react';
 import {
   TrendingUp,
   Search,
   Activity,
   BarChart2,
-  PieChart,
   FileText,
   Sliders,
   Zap,
   Briefcase,
-  Layers,
   ArrowUpRight,
   ArrowDownRight,
   Sparkles,
   Target,
   Compass,
   Star,
-  Trophy
+  Trophy,
+  Wallet
 } from 'lucide-react';
 import { StockQuote } from '@/types';
 
-interface NavbarProps {
+interface AppShellProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   selectedSymbol: string;
   onSelectSymbol: (symbol: string) => void;
   onOpenAiModal?: () => void;
+  children: React.ReactNode;
 }
 
-export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol, onOpenAiModal }: NavbarProps) {
+const navItems = [
+  { id: 'discover', label: 'Discover', icon: Compass },
+  { id: 'daily', label: 'Top 5', icon: Trophy },
+  { id: 'prediction', label: 'AI Verdict', icon: Target },
+  { id: 'chart', label: 'Terminal & Chart', icon: Activity },
+  { id: 'financials', label: 'Financials & Valuation', icon: BarChart2 },
+  { id: 'filings', label: 'SEC Filings & Calls', icon: FileText },
+  { id: 'screener', label: 'Stock Screener', icon: Sliders },
+  { id: 'backtest', label: 'Quant Backtester', icon: Zap },
+  { id: 'portfolio', label: 'Paper Trading', icon: Briefcase },
+  { id: 'watchlist', label: 'Watchlist', icon: Star },
+  { id: 'costs', label: '💰 Costs', icon: Wallet },
+];
+
+export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol, onOpenAiModal, children }: AppShellProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ symbol: string; name: string }>>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [indices, setIndices] = useState<StockQuote[]>([]);
 
-  // Popular quick tickers
+  // Popular quick tickers (sidebar bottom, wide screens)
   const quickTickers = ['NVDA', 'AAPL', 'MSFT', 'AMZN', 'TSLA', 'PLTR', 'JPM'];
 
   // Fetch benchmark index quotes
@@ -82,81 +107,107 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const navItems = [
-    { id: 'discover', label: 'Discover', icon: Compass },
-    { id: 'daily', label: 'Top 5', icon: Trophy },
-    { id: 'prediction', label: 'AI Verdict', icon: Target },
-    { id: 'chart', label: 'Terminal & Chart', icon: Activity },
-    { id: 'financials', label: 'Financials & Valuation', icon: BarChart2 },
-    { id: 'filings', label: 'SEC Filings & Calls', icon: FileText },
-    { id: 'screener', label: 'Stock Screener', icon: Sliders },
-    { id: 'backtest', label: 'Quant Backtester', icon: Zap },
-    { id: 'portfolio', label: 'Paper Trading', icon: Briefcase },
-    { id: 'watchlist', label: 'Watchlist', icon: Star },
-  ];
+  const submitSearch = () => {
+    if (searchQuery.trim()) {
+      onSelectSymbol(searchQuery.trim().toUpperCase());
+      setSearchQuery('');
+      setSearchResults([]);
+    }
+  };
 
-  return (
-    <header className="sticky top-0 z-50 w-full border-b border-slate-200 bg-white">
-      {/* Index Ticker Tape Banner */}
-      <div className="border-b border-slate-100 bg-[#fafafa] px-4 py-1.5 text-xs">
-        <div className="mx-auto flex max-w-7xl items-center justify-between overflow-x-auto gap-6 no-scrollbar">
-          <div className="flex items-center gap-2 text-slate-500 font-mono shrink-0">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Market Pulse</span>
-          </div>
+  const tickerTape = (
+    <div className="border-b border-slate-100 bg-[#fafafa] px-4 py-1.5 text-xs">
+      <div className="flex items-center justify-between overflow-x-auto gap-6 no-scrollbar">
+        <div className="flex items-center gap-2 text-slate-500 font-mono shrink-0">
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Market Pulse</span>
+        </div>
 
-          <div className="flex items-center gap-6 text-xs font-mono shrink-0 tabular-nums">
-            {indices.length > 0 ? (
-              indices.map((idx) => {
-                const isPos = idx.changePercent >= 0;
-                const cleanName = idx.symbol === '^GSPC' ? 'S&P 500' : idx.symbol === '^IXIC' ? 'NASDAQ' : idx.symbol === '^DJI' ? 'DOW' : 'RUSSELL 2K';
-                return (
-                  <div key={idx.symbol} className="flex items-center gap-2">
-                    <span className="font-medium text-slate-400">{cleanName}</span>
-                    <span className="text-slate-700">{idx.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
-                    <span className={`flex items-center text-[11px] font-semibold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {isPos ? <ArrowUpRight className="h-3 w-3 mr-0.5" /> : <ArrowDownRight className="h-3 w-3 mr-0.5" />}
-                      {isPos ? '+' : ''}{idx.changePercent.toFixed(2)}%
-                    </span>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="flex items-center gap-6 text-slate-400">
-                <span>S&P 500: 5,864.6 (+0.40%)</span>
-                <span>NASDAQ: 18,374.8 (+0.63%)</span>
-                <span>DOW: 43,275.9 (+0.09%)</span>
-                <span>10Y YIELD: 4.08% (-0.02)</span>
-              </div>
-            )}
-          </div>
-
-          <div className="hidden lg:flex items-center gap-2 shrink-0">
-            <span className="text-[11px] text-slate-400 font-mono">Quick Tickers:</span>
-            <div className="flex gap-1.5">
-              {quickTickers.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => onSelectSymbol(t)}
-                  className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors tabular-nums ${
-                    selectedSymbol === t
-                      ? 'bg-slate-900 text-white font-semibold border-slate-900'
-                      : 'bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300 border-slate-200'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
+        <div className="flex items-center gap-6 text-xs font-mono shrink-0 tabular-nums">
+          {indices.length > 0 ? (
+            indices.map((idx) => {
+              const isPos = idx.changePercent >= 0;
+              const cleanName = idx.symbol === '^GSPC' ? 'S&P 500' : idx.symbol === '^IXIC' ? 'NASDAQ' : idx.symbol === '^DJI' ? 'DOW' : 'RUSSELL 2K';
+              return (
+                <div key={idx.symbol} className="flex items-center gap-2">
+                  <span className="font-medium text-slate-400">{cleanName}</span>
+                  <span className="text-slate-700">{idx.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
+                  <span className={`flex items-center text-[11px] font-semibold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {isPos ? <ArrowUpRight className="h-3 w-3 mr-0.5" /> : <ArrowDownRight className="h-3 w-3 mr-0.5" />}
+                    {isPos ? '+' : ''}{idx.changePercent.toFixed(2)}%
+                  </span>
+                </div>
+              );
+            })
+          ) : (
+            <div className="flex items-center gap-6 text-slate-400">
+              <span>S&P 500: 5,864.6 (+0.40%)</span>
+              <span>NASDAQ: 18,374.8 (+0.63%)</span>
+              <span>DOW: 43,275.9 (+0.09%)</span>
+              <span>10Y YIELD: 4.08% (-0.02)</span>
             </div>
-          </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const searchBox = (
+    <div className="relative w-full max-w-md flex-1">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder={`Search ticker or company (e.g. NVDA, Apple, TSLA)...`}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submitSearch();
+          }}
+          className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-20 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 font-mono"
+        />
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+          <span className="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 border border-slate-200">
+            ↵ Enter
+          </span>
         </div>
       </div>
 
-      {/* Main Navigation Bar */}
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 gap-4">
+      {/* Autocomplete Dropdown */}
+      {searchResults.length > 0 && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-2.5 py-1">
+            Matching Symbols
+          </div>
+          {searchResults.map((item) => (
+            <button
+              key={item.symbol}
+              onClick={() => {
+                onSelectSymbol(item.symbol);
+                setSearchQuery('');
+                setSearchResults([]);
+              }}
+              className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-slate-900">{item.symbol}</span>
+                <span className="text-xs text-slate-500 truncate max-w-[220px]">{item.name}</span>
+              </div>
+              <span className="text-[10px] font-mono text-slate-400 uppercase">Equity</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-screen bg-[#fafafa] text-slate-900 font-sans selection:bg-cyan-100 selection:text-cyan-900">
+      {/* ---- Vertical Sidebar (wide screens) ---- */}
+      <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900">
+        <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900">
             <TrendingUp className="h-5 w-5 text-white" />
           </div>
           <div>
@@ -168,87 +219,12 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                 PRO 2.0
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-mono hidden sm:block">Modular Stock Intelligence Platform</p>
+            <p className="text-[11px] text-slate-400 font-mono">Stock Intelligence</p>
           </div>
         </div>
 
-        {/* Global Symbol Search with dropdown */}
-        <div className="relative flex-1 max-w-md">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder={`Search ticker or company (e.g. NVDA, Apple, TSLA)...`}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && searchQuery.trim()) {
-                  onSelectSymbol(searchQuery.trim().toUpperCase());
-                  setSearchQuery('');
-                  setSearchResults([]);
-                }
-              }}
-              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-20 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 font-mono"
-            />
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-              <span className="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 border border-slate-200">
-                ↵ Enter
-              </span>
-            </div>
-          </div>
-
-          {/* Autocomplete Dropdown */}
-          {searchResults.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-2.5 py-1">
-                Matching Symbols
-              </div>
-              {searchResults.map((item) => (
-                <button
-                  key={item.symbol}
-                  onClick={() => {
-                    onSelectSymbol(item.symbol);
-                    setSearchQuery('');
-                    setSearchResults([]);
-                  }}
-                  className="flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-slate-900">{item.symbol}</span>
-                    <span className="text-xs text-slate-500 truncate max-w-[220px]">{item.name}</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-slate-400 uppercase">Equity</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Current Active Symbol Badge & AI Model Settings */}
-        <div className="flex items-center gap-2">
-          {onOpenAiModal && (
-            <button
-              onClick={onOpenAiModal}
-              id="btn-ai-copilot"
-              type="button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-medium transition"
-              title="Configure LLMs and Deep Financial AI"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-slate-400" />
-              <span>AI Models</span>
-            </button>
-          )}
-
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-900">
-            <span className="text-xs text-slate-400">Active:</span>
-            <span className="font-mono font-bold text-sm text-white tracking-wide">{selectedSymbol}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Primary Feature Tabs */}
-      <div className="mx-auto max-w-7xl px-4">
-        <nav className="flex space-x-1 overflow-x-auto no-scrollbar border-t border-slate-100 pt-1.5 pb-1.5">
+        {/* Nav items — stacked, active = solid slate-900 pill */}
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -258,19 +234,109 @@ export function Navbar({ activeTab, setActiveTab, selectedSymbol, onSelectSymbol
                 id={`tab-${item.id}`}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-2 whitespace-nowrap px-3.5 py-2 text-xs font-medium rounded-lg cursor-pointer transition-all ${
+                className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium cursor-pointer transition-all text-left ${
                   isActive
-                    ? 'bg-slate-900 text-white'
+                    ? 'bg-slate-900 text-white shadow-sm'
                     : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                 <span>{item.label}</span>
               </button>
             );
           })}
         </nav>
+
+        {/* Quick tickers — sidebar bottom */}
+        <div className="border-t border-slate-100 px-3 py-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Quick Tickers</div>
+          <div className="flex flex-wrap gap-1.5">
+            {quickTickers.map((t) => (
+              <button
+                key={t}
+                onClick={() => onSelectSymbol(t)}
+                className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors tabular-nums ${
+                  selectedSymbol === t
+                    ? 'bg-slate-900 text-white font-semibold border-slate-900'
+                    : 'bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300 border-slate-200'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      </aside>
+
+      {/* ---- Right column: slim top strip, top bar, content ---- */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Slim ticker strip above the content area */}
+        <div className="sticky top-0 z-40">{tickerTape}</div>
+
+        {/* Top bar: search + AI models + active symbol */}
+        <div className="sticky top-[33px] z-40 border-b border-slate-200 bg-white">
+          <div className="flex items-center justify-between gap-4 px-4 py-2">
+            {/* Compact brand for narrow screens (sidebar hidden there) */}
+            <div className="flex items-center gap-2 lg:hidden">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900">
+                <TrendingUp className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-base font-bold tracking-tight text-slate-900">
+                Trade<span className="text-slate-400">xa</span>
+              </span>
+            </div>
+
+            {searchBox}
+
+            <div className="flex items-center gap-2">
+              {onOpenAiModal && (
+                <button
+                  onClick={onOpenAiModal}
+                  id="btn-ai-copilot"
+                  type="button"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-medium transition"
+                  title="Configure LLMs and Deep Financial AI"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-slate-400" />
+                  <span className="hidden sm:inline">AI Models</span>
+                </button>
+              )}
+
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-900">
+                <span className="text-xs text-slate-400">Active:</span>
+                <span className="font-mono font-bold text-sm text-white tracking-wide">{selectedSymbol}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Horizontal nav strip — auto-hide fallback below lg (~1024px) */}
+          <nav className="flex space-x-1 overflow-x-auto no-scrollbar border-t border-slate-100 px-2 pt-1.5 pb-1.5 lg:hidden">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  id={`tab-mobile-${item.id}`}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  className={`flex items-center gap-2 whitespace-nowrap px-3 py-2 text-xs font-medium rounded-lg cursor-pointer transition-all ${
+                    isActive
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                  }`}
+                >
+                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Content */}
+        <div className="flex flex-1 flex-col">{children}</div>
       </div>
-    </header>
+    </div>
   );
 }

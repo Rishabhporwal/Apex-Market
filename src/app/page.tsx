@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Navbar } from '@/components/layout/Navbar';
+import { AppShell } from '@/components/layout/Navbar';
 import { VerdictView } from '@/components/verdict/VerdictView';
 import { StockChart } from '@/components/charts/StockChart';
 import { DailyReportView } from '@/components/daily/DailyReportView';
@@ -12,6 +12,7 @@ import { DiscoverView } from '@/components/discover/DiscoverView';
 import { BacktestView } from '@/components/backtesting/BacktestView';
 import { PortfolioView } from '@/components/portfolio/PortfolioView';
 import { WatchlistView } from '@/components/watchlist/WatchlistView';
+import { CostsView } from '@/components/costs/CostsView';
 import { FilingQA } from '@/components/research/FilingQA';
 import { AiCopilotModal } from '@/components/research/AiCopilotModal';
 import { StockQuote } from '@/types';
@@ -48,16 +49,15 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fafafa] text-slate-900 flex flex-col font-sans selection:bg-cyan-100 selection:text-cyan-900">
-      {/* Navigation Header */}
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        selectedSymbol={selectedSymbol}
-        onSelectSymbol={handleSelectSymbol}
-        onOpenAiModal={() => setIsAiModalOpen(true)}
-      />
-
+    // AppShell: vertical sidebar (wide screens) + slim ticker strip + top bar;
+    // main workspace and footer live inside the right-hand content column.
+    <AppShell
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      selectedSymbol={selectedSymbol}
+      onSelectSymbol={handleSelectSymbol}
+      onOpenAiModal={() => setIsAiModalOpen(true)}
+    >
       {/* AI Copilot & Model Config Modal */}
       <AiCopilotModal
         isOpen={isAiModalOpen}
@@ -141,6 +141,8 @@ export default function Home() {
             }}
           />
         )}
+
+        {activeTab === 'costs' && <CostsView />}
       </main>
 
       {/* Global Footer */}
@@ -159,6 +161,6 @@ export default function Home() {
           </div>
         </div>
       </footer>
-    </div>
+    </AppShell>
   );
 }
