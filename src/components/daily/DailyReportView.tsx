@@ -82,7 +82,9 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
     setRunning(true);
     setRunError(null);
     try {
-      const res = await fetch('/api/daily-report', { method: 'POST' });
+      // send a minimal JSON body — an empty body with content-type json makes
+      // Fastify downstream reject with FST_ERR_CTP_EMPTY_JSON_BODY
+      const res = await fetch('/api/daily-report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       if (res.ok) setReport(await res.json());
       else {
         const body = await res.json().catch(() => ({}));
