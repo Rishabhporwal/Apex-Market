@@ -21,7 +21,8 @@
     "svc:news": "node services/news/index.mjs",
     "svc:llm": "node services/llm/index.mjs",
     "svc:gateway": "node services/gateway/index.mjs",
-    "svc:userdata": "node services/userdata/index.mjs"
+    "svc:userdata": "node services/userdata/index.mjs",
+    "ingest:edgar:quarterly": "node scripts/ingest-edgar-quarterly.mjs"
   },
   "keywords": [],
   "author": "",

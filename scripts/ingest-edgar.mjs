@@ -429,7 +429,20 @@ async function main() {
   process.exit(0);
 }
 
-main().catch((err) => {
-  console.error('FATAL:', err.message);
-  process.exit(1);
-});
+// ---- shared exports (consumed by scripts/ingest-edgar-quarterly.mjs) ----
+export {
+  UA, DATA_DIR, DB_PATH, fetchJson, fetchText,
+  getSp500Universe, getSp400Universe,
+  REVENUE_TAGS, NET_INCOME_TAGS,
+};
+
+const isMain =
+  process.argv[1] &&
+  import.meta.url === (await import('node:url')).pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  main().catch((err) => {
+    console.error('FATAL:', err.message);
+    process.exit(1);
+  });
+}
