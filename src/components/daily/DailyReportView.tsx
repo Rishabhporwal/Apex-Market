@@ -282,7 +282,7 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                     {r.score != null && <span className="text-[11px] text-slate-300 tabular-nums">score {r.score}</span>}
                     {r.earnings?.daysUntil != null && r.earnings.daysUntil >= -1 && r.earnings.daysUntil <= 21 && (
                       <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 border border-amber-200">
-                        <CalendarClock className="h-3 w-3" /> ER {r.earnings.daysUntil <= 0 ? 'now' : `${r.earnings.daysUntil}d`}
+                        <CalendarClock className="h-3 w-3" /> Earnings {r.earnings.daysUntil <= 0 ? 'today' : `in ${r.earnings.daysUntil}d`}
                       </span>
                     )}
                     {r.cachedAnalysis && (

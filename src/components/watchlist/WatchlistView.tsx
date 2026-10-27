@@ -256,7 +256,7 @@ export function WatchlistView({ onSelectSymbol }: { onSelectSymbol: (sym: string
                                 title={`Earnings ${e.daysUntil <= 0 ? 'imminent' : `in ${e.daysUntil} day${e.daysUntil === 1 ? '' : 's'}`} — verdicts can shift sharply around reports`}
                                 className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${e.daysUntil <= 7 ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-500'}`}
                               >
-                                <CalendarClock className="h-3 w-3" /> ER {e.daysUntil <= 0 ? 'now' : `${e.daysUntil}d`}
+                                <CalendarClock className="h-3 w-3" /> Earnings {e.daysUntil <= 0 ? 'today' : `in ${e.daysUntil}d`}
                               </span>
                             );
                           })()}

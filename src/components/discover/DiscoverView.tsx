@@ -122,7 +122,7 @@ export function DiscoverView({ onSelectSymbol }: DiscoverViewProps) {
         if (res.ok) {
           const data = await res.json();
           setSuggestions(
-            (Array.isArray(data) ? data : (data.stocks ?? [])).map((r: ScreenerRow) => ({
+            (Array.isArray(data) ? data : (data.results ?? [])).map((r: ScreenerRow) => ({
               symbol: r.symbol,
               name: r.name,
             }))
