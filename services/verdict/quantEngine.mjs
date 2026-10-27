@@ -2,8 +2,10 @@
  * svc-verdict quant core — EXACT port of src/services/quantEngine.ts.
  * Pure functions only: no fetches, no globals, no Date.now().
  * Single source of truth requirement: scoring must match the monolith's
- * backtester bit-for-bit (trend ±25, RSI ±15, news ±25 clamped /4,
- * fundamentals ±35 clamped, BUY>=35, SELL needs 2 bearish votes).
+ * backtester bit-for-bit (block weights v3: trend 0 / RSI 5 / news 25
+ * clamped /4 / fundamentals 0 (excluded by grid search) / momentum 20, raw
+ * points weight-scaled and renormalized to the 110 scale, BUY>=35, SELL needs
+ * 2 bearish votes).
  * Confidence comes from the backtest calibration table when
  * data/calibration.json is present (fallback: legacy formula, calibrated:false).
  */
@@ -253,6 +255,31 @@ export function momentum121(closes) {
 
 const MOMENTUM_BLOCK_MAX = 10;
 
+// ---- Factor block weights (v3 — grid-searched) -------------------------------
+// Chosen by scripts/weight-search.mjs (323-combo grid over the 3y/90d
+// backtest, data/weight-search.json) with a CLUSTER-robustness gate: the
+// percentile-composited fundamentals block is ANTI-predictive at this horizon
+// (mean per-month Spearman falls monotonically with its weight: 0 → +0.09,
+// 50 → −0.12), 12-1 momentum is the strongest ranking signal, RSI helps,
+// trend is neutral for ranking. Adopted: trend 0 / rsi 5 / fund 0 / mom 20 /
+// sent 25 — overall Spearman −0.052 → +0.187 engine-exact (+0.213 unrounded),
+// first half +0.23 / second half +0.14 (both positive, unlike the baseline's
+// +0.23/−0.31), top−middle quintile −2.24% → +1.8%. Block points are scaled
+// by w/cap and the total renormalized to the shipped 110-point scale, so the
+// ±100 clamp, the BUY>=35 / HOLD / SELL thresholds and the calibration bands
+// keep their exact meaning. Mirrored in quantEngine.ts and
+// scripts/backtest-verdicts.mjs — keep in lockstep.
+const FACTOR_WEIGHTS = { trend: 0, rsi: 5, fund: 0, mom: 20, sent: 25 };
+const FACTOR_CAPS = { trend: 25, rsi: 15, fund: 35, mom: 10, sent: 25 };
+const WEIGHT_SCALE = 110 / (FACTOR_WEIGHTS.trend + FACTOR_WEIGHTS.rsi + FACTOR_WEIGHTS.fund + FACTOR_WEIGHTS.mom + FACTOR_WEIGHTS.sent);
+const BLOCK_MULT = {
+  trend: (FACTOR_WEIGHTS.trend / FACTOR_CAPS.trend) * WEIGHT_SCALE,
+  rsi: (FACTOR_WEIGHTS.rsi / FACTOR_CAPS.rsi) * WEIGHT_SCALE,
+  fund: (FACTOR_WEIGHTS.fund / FACTOR_CAPS.fund) * WEIGHT_SCALE,
+  mom: (FACTOR_WEIGHTS.mom / FACTOR_CAPS.mom) * WEIGHT_SCALE,
+  sent: (FACTOR_WEIGHTS.sent / FACTOR_CAPS.sent) * WEIGHT_SCALE,
+};
+
 // ---- The core scoring function (mirrors aiVerdictService exactly) ----
 export function scoreVerdict(input) {
   const { price, candles, fundamentals, sentimentScore = 0, sectorPercentiles } = input;
@@ -265,11 +292,11 @@ export function scoreVerdict(input) {
   const rsiVal = rsi(closes, 14);
 
   let score = 0;
-  // Trend alignment ±25
+  // Trend alignment (raw ±25, weight-scaled)
   let trendPts = 0;
   if (trend === 'up') trendPts = 25;
   else if (trend === 'down') trendPts = -25;
-  score += trendPts;
+  score += trendPts * BLOCK_MULT.trend;
   // RSI position ±15
   let rsiPts = 0;
   let rsiDetail = 'insufficient history for RSI(14)';
@@ -281,10 +308,10 @@ export function scoreVerdict(input) {
     else if (rsiVal > 55) { rsiPts = -7; rsiDetail = `RSI ${r} — hot, stretched momentum`; }
     else { rsiDetail = `RSI ${r} — neutral zone (no points)`; }
   }
-  score += rsiPts;
-  // News sentiment ±25 (clamped)
+  score += rsiPts * BLOCK_MULT.rsi;
+  // News sentiment (raw ±25 clamped, weight-scaled)
   const sentPts = Math.max(-25, Math.min(25, sentimentScore / 4));
-  score += sentPts;
+  score += sentPts * BLOCK_MULT.sent;
   // Fundamentals ±35 (clamped). With sector percentiles: continuous
   // percentile-rank composition (weighted, renormalized over present factors,
   // mapped onto the existing ±35 scale). Without: original absolute tiers.
@@ -327,15 +354,16 @@ export function scoreVerdict(input) {
       }
       fundPts = Math.max(-35, Math.min(35, fundPts));
     }
-    score += fundPts;
+    score += fundPts * BLOCK_MULT.fund;
   }
 
-  // 12-1 momentum (skip-1m) ±10 — candle-derived, identical backtest/live.
+  // 12-1 momentum (skip-1m) — raw ±10 block, weight-scaled; candle-derived,
+  // identical backtest/live.
   const m121 = momentum121(closes);
   let momPts = 0;
   if (m121 !== undefined) {
     momPts = Math.max(-MOMENTUM_BLOCK_MAX, Math.min(MOMENTUM_BLOCK_MAX, m121 * 50));
-    score += momPts;
+    score += momPts * BLOCK_MULT.mom;
   }
 
   score = Math.round(Math.max(-100, Math.min(100, score)));
@@ -366,17 +394,17 @@ export function scoreVerdict(input) {
   const breakdown = {
     score,
     trend: {
-      points: trendPts,
+      points: Math.round(trendPts * BLOCK_MULT.trend * 10) / 10,
       detail: trend === 'up' ? 'price above SMA50 & SMA200 (uptrend)' : trend === 'down' ? 'price below SMA50 & SMA200 (downtrend)' : 'mixed moving averages (sideways)',
     },
-    rsi: { points: rsiPts, detail: rsiDetail },
+    rsi: { points: Math.round(rsiPts * BLOCK_MULT.rsi * 10) / 10, detail: rsiDetail },
     sentiment: {
-      points: Math.round(sentPts * 10) / 10,
-      detail: sentimentScore === 0 ? 'no meaningful news sentiment measured' : `news sentiment score ${sentimentScore.toFixed(0)} (÷4, clamped ±25)`,
+      points: Math.round(sentPts * BLOCK_MULT.sent * 10) / 10,
+      detail: sentimentScore === 0 ? 'no meaningful news sentiment measured' : `news sentiment score ${sentimentScore.toFixed(0)} (÷4, clamped ±25, weight-scaled)`,
     },
     fundamentals: {
-      points: Math.round(fundPts * 10) / 10,
-      max: 35,
+      points: Math.round(fundPts * BLOCK_MULT.fund * 10) / 10,
+      max: Math.round(35 * BLOCK_MULT.fund * 10) / 10,
       used: fundamentalsUsed,
       factors: fundFactors,
       ...(fundComposite !== undefined ? { composite: fundComposite } : {}),
@@ -390,8 +418,8 @@ export function scoreVerdict(input) {
     ...(m121 !== undefined
       ? {
           momentum: {
-            points: Math.round(momPts * 10) / 10,
-            detail: `12-1 momentum (11-month return excluding the most recent month): ${(m121 * 100).toFixed(1)}% — ±20% maps to the full ±10 block`,
+            points: Math.round(momPts * BLOCK_MULT.mom * 10) / 10,
+            detail: `12-1 momentum (11-month return excluding the most recent month): ${(m121 * 100).toFixed(1)}% — ±20% maps to the full raw ±10 block (weight-scaled)`,
           },
         }
       : {}),

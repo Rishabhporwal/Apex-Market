@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-27T10:30:30.723Z",
+  "generatedAt": "2026-10-27T10:53:59.560Z",
   "source": "scripts/backtest-verdicts.mjs",
   "config": {
     "years": 3,
@@ -10,44 +10,44 @@
   "note": "confidence = observed share of signals in the score band whose target1 was reached within the horizon before the stop (levels structure: window-5 fractal pivots + ATR-14, same as the live trade plan). Bands are half-open: [lo, hi) except >=35.",
   "bands": {
     "<-35": {
-      "n": 244,
-      "hits": 144,
-      "stoppedFirst": 100,
+      "n": 465,
+      "hits": 285,
+      "stoppedFirst": 180,
       "neitherInHorizon": 0,
-      "hitRate": 59,
-      "confidence": 59
+      "hitRate": 61.3,
+      "confidence": 61
     },
     "-35..-15": {
-      "n": 650,
-      "hits": 427,
-      "stoppedFirst": 222,
-      "neitherInHorizon": 1,
-      "hitRate": 65.7,
-      "confidence": 66
+      "n": 514,
+      "hits": 322,
+      "stoppedFirst": 192,
+      "neitherInHorizon": 0,
+      "hitRate": 62.6,
+      "confidence": 63
     },
     "-15..15": {
-      "n": 1613,
-      "hits": 1018,
-      "stoppedFirst": 594,
-      "neitherInHorizon": 1,
-      "hitRate": 63.1,
+      "n": 875,
+      "hits": 555,
+      "stoppedFirst": 320,
+      "neitherInHorizon": 0,
+      "hitRate": 63.4,
       "confidence": 63
     },
     "15..35": {
-      "n": 1251,
-      "hits": 818,
-      "stoppedFirst": 432,
-      "neitherInHorizon": 1,
-      "hitRate": 65.4,
-      "confidence": 65
+      "n": 1086,
+      "hits": 695,
+      "stoppedFirst": 391,
+      "neitherInHorizon": 0,
+      "hitRate": 64,
+      "confidence": 64
     },
     ">=35": {
-      "n": 647,
-      "hits": 398,
-      "stoppedFirst": 249,
-      "neitherInHorizon": 0,
-      "hitRate": 61.5,
-      "confidence": 62
+      "n": 1465,
+      "hits": 964,
+      "stoppedFirst": 499,
+      "neitherInHorizon": 2,
+      "hitRate": 65.8,
+      "confidence": 66
     }
   }
 }

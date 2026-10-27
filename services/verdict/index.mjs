@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.7'; // percentile-rank fundamentals composition + 12-1 momentum (skip-1m) block
+const VERDICT_ENGINE_VERSION = '2026-10-27.8'; // grid-searched factor weights: trend 0 / RSI 5 / fundamentals 0 / momentum 20 / sentiment 25 (data/weight-search.json)
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 

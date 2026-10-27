@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-27T10:30:30.723Z",
+  "generatedAt": "2026-10-27T10:53:59.560Z",
   "config": {
     "years": 3,
     "horizonDays": 90,
@@ -48,38 +48,38 @@
   },
   "actions": {
     "BUY": {
-      "n": 647,
-      "avgForwardReturn": 2.99,
-      "median": 1.95,
-      "winRate": 56.1,
-      "spyAvgSameWindows": 3.67,
-      "avgAlpha": -0.68,
+      "n": 1465,
+      "avgForwardReturn": 5.31,
+      "median": 2.97,
+      "winRate": 58.8,
+      "spyAvgSameWindows": 4.1,
+      "avgAlpha": 1.21,
       "netOfCosts": {
-        "avgReturn": 2.99,
-        "winRate": 56.1,
-        "avgAlpha": -0.68,
+        "avgReturn": 5.31,
+        "winRate": 58.8,
+        "avgAlpha": 1.21,
         "note": "long"
       }
     },
     "HOLD": {
-      "n": 3465,
-      "avgForwardReturn": 4.72,
-      "median": 2.5,
-      "winRate": 57.7,
-      "spyAvgSameWindows": 4.14,
-      "avgAlpha": 0.58
+      "n": 2745,
+      "avgForwardReturn": 3.96,
+      "median": 2.07,
+      "winRate": 56.5,
+      "spyAvgSameWindows": 4.05,
+      "avgAlpha": -0.09
     },
     "SELL": {
-      "n": 293,
-      "avgForwardReturn": 2.98,
-      "median": 0.68,
-      "winRate": 51.9,
-      "spyAvgSameWindows": 4,
-      "avgAlpha": -1.02,
+      "n": 195,
+      "avgForwardReturn": 2.66,
+      "median": 0.95,
+      "winRate": 53.3,
+      "spyAvgSameWindows": 3.98,
+      "avgAlpha": -1.32,
       "netOfCosts": {
-        "avgReturn": -2.98,
-        "winRate": 47.8,
-        "avgAlpha": -6.99,
+        "avgReturn": -2.66,
+        "winRate": 46.2,
+        "avgAlpha": -6.64,
         "note": "short interpretation: gross = -forward return"
       }
     }
@@ -89,67 +89,67 @@
       "horizonDays": 5,
       "actions": {
         "BUY": {
-          "n": 689,
-          "avgForwardReturn": -0.28,
-          "median": -0.37,
-          "winRate": 44.3,
-          "spyAvgSameWindows": -0.16,
-          "avgAlpha": -0.12,
+          "n": 1598,
+          "avgForwardReturn": -0.22,
+          "median": -0.4,
+          "winRate": 43.6,
+          "spyAvgSameWindows": -0.15,
+          "avgAlpha": -0.07,
           "netOfCosts": {
-            "avgReturn": -0.28,
-            "winRate": 44.3,
-            "avgAlpha": -0.11,
+            "avgReturn": -0.22,
+            "winRate": 43.6,
+            "avgAlpha": -0.07,
             "note": "long"
           }
         },
         "HOLD": {
-          "n": 3702,
-          "avgForwardReturn": -0.19,
-          "median": -0.19,
-          "winRate": 47.1,
-          "spyAvgSameWindows": -0.13,
-          "avgAlpha": -0.06
+          "n": 2897,
+          "avgForwardReturn": -0.23,
+          "median": -0.13,
+          "winRate": 48,
+          "spyAvgSameWindows": -0.12,
+          "avgAlpha": -0.11
         },
         "SELL": {
-          "n": 302,
-          "avgForwardReturn": -0.14,
-          "median": -0.14,
-          "winRate": 46.7,
-          "spyAvgSameWindows": -0.18,
-          "avgAlpha": 0.04,
+          "n": 198,
+          "avgForwardReturn": 0.25,
+          "median": 0.2,
+          "winRate": 51.5,
+          "spyAvgSameWindows": -0.28,
+          "avgAlpha": 0.53,
           "netOfCosts": {
-            "avgReturn": 0.14,
-            "winRate": 52.6,
-            "avgAlpha": 0.32,
+            "avgReturn": -0.26,
+            "winRate": 47.5,
+            "avgAlpha": 0.02,
             "note": "short interpretation: gross = -forward return"
           }
         }
       },
       "bootstrap95ci": {
         "BUY": {
-          "tickers": 120,
-          "meanAlpha": -0.17,
+          "tickers": 140,
+          "meanAlpha": -0.32,
           "ci95": [
-            -0.62,
-            0.29
+            -0.65,
+            -0.04
           ],
-          "significantAt95": false
+          "significantAt95": true
         },
         "HOLD": {
           "tickers": 144,
-          "meanAlpha": -0.08,
+          "meanAlpha": -0.07,
           "ci95": [
-            -0.27,
-            0.1
+            -0.25,
+            0.09
           ],
           "significantAt95": false
         },
         "SELL": {
-          "tickers": 90,
-          "meanAlpha": -0.1,
+          "tickers": 67,
+          "meanAlpha": 0.82,
           "ci95": [
-            -0.94,
-            0.66
+            -0.19,
+            1.8
           ],
           "significantAt95": false
         }
@@ -159,67 +159,67 @@
       "horizonDays": 21,
       "actions": {
         "BUY": {
-          "n": 689,
-          "avgForwardReturn": 0.49,
-          "median": 0.03,
-          "winRate": 50.1,
-          "spyAvgSameWindows": 0.69,
-          "avgAlpha": -0.2,
+          "n": 1598,
+          "avgForwardReturn": 0.95,
+          "median": 0.55,
+          "winRate": 52.5,
+          "spyAvgSameWindows": 1.01,
+          "avgAlpha": -0.06,
           "netOfCosts": {
-            "avgReturn": 0.49,
-            "winRate": 50.1,
-            "avgAlpha": -0.2,
+            "avgReturn": 0.95,
+            "winRate": 52.5,
+            "avgAlpha": -0.06,
             "note": "long"
           }
         },
         "HOLD": {
-          "n": 3702,
-          "avgForwardReturn": 0.85,
-          "median": 0.58,
-          "winRate": 53.4,
-          "spyAvgSameWindows": 0.91,
-          "avgAlpha": -0.06
+          "n": 2897,
+          "avgForwardReturn": 0.73,
+          "median": 0.46,
+          "winRate": 52.8,
+          "spyAvgSameWindows": 0.83,
+          "avgAlpha": -0.1
         },
         "SELL": {
-          "n": 302,
-          "avgForwardReturn": 1.14,
-          "median": -0.09,
-          "winRate": 48.3,
-          "spyAvgSameWindows": 1.2,
-          "avgAlpha": -0.06,
+          "n": 198,
+          "avgForwardReturn": 1.07,
+          "median": 0.03,
+          "winRate": 50,
+          "spyAvgSameWindows": 0.97,
+          "avgAlpha": 0.1,
           "netOfCosts": {
-            "avgReturn": -1.15,
-            "winRate": 51.3,
-            "avgAlpha": -2.34,
+            "avgReturn": -1.08,
+            "winRate": 49.5,
+            "avgAlpha": -2.05,
             "note": "short interpretation: gross = -forward return"
           }
         }
       },
       "bootstrap95ci": {
         "BUY": {
-          "tickers": 120,
-          "meanAlpha": -0.39,
+          "tickers": 140,
+          "meanAlpha": -0.8,
           "ci95": [
-            -1.15,
-            0.36
+            -1.41,
+            -0.26
           ],
-          "significantAt95": false
+          "significantAt95": true
         },
         "HOLD": {
           "tickers": 144,
-          "meanAlpha": -0.07,
+          "meanAlpha": 0.16,
           "ci95": [
-            -0.43,
-            0.31
+            -0.17,
+            0.47
           ],
           "significantAt95": false
         },
         "SELL": {
-          "tickers": 90,
-          "meanAlpha": -0.7,
+          "tickers": 67,
+          "meanAlpha": -0.15,
           "ci95": [
-            -2.36,
-            1.06
+            -2.04,
+            1.79
           ],
           "significantAt95": false
         }
@@ -229,67 +229,67 @@
       "horizonDays": 90,
       "actions": {
         "BUY": {
-          "n": 647,
-          "avgForwardReturn": 2.99,
-          "median": 1.95,
-          "winRate": 56.1,
-          "spyAvgSameWindows": 3.67,
-          "avgAlpha": -0.68,
+          "n": 1465,
+          "avgForwardReturn": 5.31,
+          "median": 2.97,
+          "winRate": 58.8,
+          "spyAvgSameWindows": 4.1,
+          "avgAlpha": 1.21,
           "netOfCosts": {
-            "avgReturn": 2.99,
-            "winRate": 56.1,
-            "avgAlpha": -0.68,
+            "avgReturn": 5.31,
+            "winRate": 58.8,
+            "avgAlpha": 1.21,
             "note": "long"
           }
         },
         "HOLD": {
-          "n": 3465,
-          "avgForwardReturn": 4.72,
-          "median": 2.5,
-          "winRate": 57.7,
-          "spyAvgSameWindows": 4.14,
-          "avgAlpha": 0.58
+          "n": 2745,
+          "avgForwardReturn": 3.96,
+          "median": 2.07,
+          "winRate": 56.5,
+          "spyAvgSameWindows": 4.05,
+          "avgAlpha": -0.09
         },
         "SELL": {
-          "n": 293,
-          "avgForwardReturn": 2.98,
-          "median": 0.68,
-          "winRate": 51.9,
-          "spyAvgSameWindows": 4,
-          "avgAlpha": -1.02,
+          "n": 195,
+          "avgForwardReturn": 2.66,
+          "median": 0.95,
+          "winRate": 53.3,
+          "spyAvgSameWindows": 3.98,
+          "avgAlpha": -1.32,
           "netOfCosts": {
-            "avgReturn": -2.98,
-            "winRate": 47.8,
-            "avgAlpha": -6.99,
+            "avgReturn": -2.66,
+            "winRate": 46.2,
+            "avgAlpha": -6.64,
             "note": "short interpretation: gross = -forward return"
           }
         }
       },
       "bootstrap95ci": {
         "BUY": {
-          "tickers": 120,
-          "meanAlpha": -1.06,
+          "tickers": 139,
+          "meanAlpha": -0.55,
           "ci95": [
-            -3.15,
-            1.41
+            -1.81,
+            0.8
           ],
           "significantAt95": false
         },
         "HOLD": {
           "tickers": 144,
-          "meanAlpha": 0.64,
+          "meanAlpha": 0.89,
           "ci95": [
-            -0.41,
-            1.83
+            -0.29,
+            2.04
           ],
           "significantAt95": false
         },
         "SELL": {
-          "tickers": 88,
-          "meanAlpha": 0.24,
+          "tickers": 66,
+          "meanAlpha": -0.87,
           "ci95": [
-            -1.93,
-            2.59
+            -2.98,
+            1.36
           ],
           "significantAt95": false
         }
@@ -304,138 +304,138 @@
     "observations": 4405,
     "perMonth": {
       "months": 31,
-      "avgSpearman": -0.052,
+      "avgSpearman": 0.187,
       "medianSpearman": 0,
       "positiveShare": 48.4,
-      "avgTopMinusMid": -2.24,
-      "topAboveMidShare": 32.3
+      "avgTopMinusMid": 1.8,
+      "topAboveMidShare": 74.2
     },
     "halves": {
       "first": {
         "months": 15,
-        "avgSpearman": 0.227,
-        "medianSpearman": 0.5,
-        "positiveShare": 66.7,
-        "avgTopMinusMid": 0.44,
-        "topAboveMidShare": 46.7
+        "avgSpearman": 0.233,
+        "medianSpearman": 0,
+        "positiveShare": 46.7,
+        "avgTopMinusMid": 3.27,
+        "topAboveMidShare": 80
       },
       "second": {
         "months": 16,
-        "avgSpearman": -0.313,
-        "medianSpearman": -0.3,
-        "positiveShare": 31.3,
-        "avgTopMinusMid": -4.76,
-        "topAboveMidShare": 18.8
+        "avgSpearman": 0.144,
+        "medianSpearman": 0.1,
+        "positiveShare": 50,
+        "avgTopMinusMid": 0.42,
+        "topAboveMidShare": 68.8
       }
     },
     "pooledQuintiles": [
       {
         "quintile": 1,
         "n": 899,
-        "meanAlpha": -0.16,
-        "meanForwardReturn": 3.89
+        "meanAlpha": -0.15,
+        "meanForwardReturn": 3.91
       },
       {
         "quintile": 2,
         "n": 886,
-        "meanAlpha": 0.84,
-        "meanForwardReturn": 4.91
+        "meanAlpha": -0.8,
+        "meanForwardReturn": 3.27
       },
       {
         "quintile": 3,
         "n": 879,
-        "meanAlpha": 1.56,
-        "meanForwardReturn": 5.6
+        "meanAlpha": -0.39,
+        "meanForwardReturn": 3.66
       },
       {
         "quintile": 4,
         "n": 873,
-        "meanAlpha": -0.07,
-        "meanForwardReturn": 4
+        "meanAlpha": 1.45,
+        "meanForwardReturn": 5.52
       },
       {
         "quintile": 5,
         "n": 868,
-        "meanAlpha": -0.72,
-        "meanForwardReturn": 3.33
+        "meanAlpha": 1.37,
+        "meanForwardReturn": 5.43
       }
     ],
     "topVsMiddle": {
-      "topQuintileMeanAlpha": -0.72,
-      "middleQuintileMeanAlpha": 1.56,
-      "spread": -2.28
+      "topQuintileMeanAlpha": 1.37,
+      "middleQuintileMeanAlpha": -0.39,
+      "spread": 1.76
     },
     "pooledMonotone": false,
-    "verdict": "FAIL — no positive monotone score-return relationship",
+    "verdict": "PASS — positive Spearman, top bucket above middle, consistent across halves",
     "note": "Per checkpoint month: bucket the scored universe into score quintiles (5=top scores), mean forward return/alpha per bucket vs SPY same-window. Spearman = rank correlation of bucket index vs mean alpha. Pooled quintiles weight every checkpoint observation equally; forward windows overlap, so treat pooled means as descriptive, the per-month Spearman distribution as the significance signal.",
     "perMonthDetail": [
       {
         "monthKey": "2024-01",
         "n": 141,
-        "spearmanAlpha": 0.6,
-        "spearmanRaw": 0.6,
-        "pearsonAlpha": 0.78,
+        "spearmanAlpha": 0.9,
+        "spearmanRaw": 0.9,
+        "pearsonAlpha": 0.938,
         "bucketMeanAlpha": [
-          -2.87,
-          2.85,
-          1.8,
-          0.75,
-          6.86
+          -3.62,
+          1.81,
+          0.97,
+          3.85,
+          6.42
         ],
         "bucketMeanFwd": [
-          1.41,
-          7.13,
+          0.66,
           6.08,
-          5.03,
-          11.14
+          5.24,
+          8.13,
+          10.69
         ],
-        "topMinusMid": 5.05,
+        "topMinusMid": 5.45,
         "topAboveMid": true
       },
       {
         "monthKey": "2024-02",
         "n": 141,
-        "spearmanAlpha": 0.6,
-        "spearmanRaw": 0.6,
-        "pearsonAlpha": 0.604,
+        "spearmanAlpha": 0.9,
+        "spearmanRaw": 0.9,
+        "pearsonAlpha": 0.875,
         "bucketMeanAlpha": [
-          -4.67,
-          -5.36,
-          2.9,
-          -2.29,
-          0.43
+          -5.45,
+          -4.24,
+          -1.18,
+          -2.67,
+          4.57
         ],
         "bucketMeanFwd": [
-          0.04,
-          -0.66,
-          7.61,
-          2.41,
-          5.14
+          -0.74,
+          0.47,
+          3.53,
+          2.04,
+          9.28
         ],
-        "topMinusMid": -2.47,
-        "topAboveMid": false
+        "topMinusMid": 5.75,
+        "topAboveMid": true
       },
       {
         "monthKey": "2024-03",
         "n": 141,
-        "spearmanAlpha": 0,
-        "spearmanRaw": 0,
-        "pearsonAlpha": 0.136,
+        "spearmanAlpha": 0.5,
+        "spearmanRaw": 0.5,
+        "pearsonAlpha": 0.635,
         "bucketMeanAlpha": [
-          -4.1,
-          -7.77,
-          -7.29,
-          -5.79,
-          -4.38
+          -6.16,
+          -7.35,
+          -6.13,
+          -6.89,
+          -2.74
         ],
         "bucketMeanFwd": [
-          0.04,
-          -3.63,
-          -3.15,
-          -1.65,
-          -0.24
+          -2.02,
+          -3.21,
+          -1.99,
+          -2.75,
+          1.4
         ],
-        "topMinusMid": 2.91,
+        "topMinusMid": 3.39,
         "topAboveMid": true
       },
       {
@@ -443,574 +443,574 @@
         "n": 141,
         "spearmanAlpha": -0.8,
         "spearmanRaw": -0.8,
-        "pearsonAlpha": -0.789,
+        "pearsonAlpha": -0.744,
         "bucketMeanAlpha": [
-          1.32,
-          -4.6,
-          -3.39,
-          -6.74,
-          -5.29
+          -0.13,
+          -4.31,
+          -3.14,
+          -6.52,
+          -4.55
         ],
         "bucketMeanFwd": [
-          7.25,
-          1.33,
-          2.55,
-          -0.81,
-          0.64
+          5.8,
+          1.62,
+          2.79,
+          -0.58,
+          1.38
         ],
-        "topMinusMid": -1.9,
+        "topMinusMid": -1.41,
         "topAboveMid": false
       },
       {
         "monthKey": "2024-05",
         "n": 141,
-        "spearmanAlpha": 0.2,
-        "spearmanRaw": 0.2,
-        "pearsonAlpha": 0.363,
+        "spearmanAlpha": -0.3,
+        "spearmanRaw": -0.3,
+        "pearsonAlpha": -0.44,
         "bucketMeanAlpha": [
-          -1.59,
-          -4.22,
-          -0.5,
-          0.77,
-          -1.96
+          0.28,
+          -1.01,
+          -3.28,
+          -2.64,
+          -0.9
         ],
         "bucketMeanFwd": [
-          4.26,
-          1.63,
-          5.35,
-          6.62,
-          3.89
+          6.12,
+          4.84,
+          2.57,
+          3.21,
+          4.94
         ],
-        "topMinusMid": -1.46,
-        "topAboveMid": false
+        "topMinusMid": 2.37,
+        "topAboveMid": true
       },
       {
         "monthKey": "2024-06",
         "n": 141,
-        "spearmanAlpha": -0.1,
-        "spearmanRaw": -0.1,
-        "pearsonAlpha": -0.076,
+        "spearmanAlpha": -0.2,
+        "spearmanRaw": -0.2,
+        "pearsonAlpha": -0.172,
         "bucketMeanAlpha": [
-          0.54,
-          1.99,
-          0.93,
-          6.11,
-          -2.24
+          2.91,
+          2.75,
+          -3.77,
+          6.38,
+          -1.04
         ],
         "bucketMeanFwd": [
-          5.26,
-          6.72,
-          5.65,
-          10.84,
-          2.48
+          7.63,
+          7.48,
+          0.96,
+          11.11,
+          3.69
         ],
-        "topMinusMid": -3.17,
-        "topAboveMid": false
+        "topMinusMid": 2.73,
+        "topAboveMid": true
       },
       {
         "monthKey": "2024-07",
         "n": 141,
-        "spearmanAlpha": 0.7,
-        "spearmanRaw": 0.7,
-        "pearsonAlpha": 0.598,
+        "spearmanAlpha": 0.6,
+        "spearmanRaw": 0.6,
+        "pearsonAlpha": 0.584,
         "bucketMeanAlpha": [
-          -4.96,
-          -4.13,
-          4.3,
-          -1.23,
-          0.69
+          -0.88,
+          -2.44,
+          -3.04,
+          -0.69,
+          1.56
         ],
         "bucketMeanFwd": [
-          1.66,
-          2.49,
-          10.92,
-          5.39,
-          7.31
+          5.74,
+          4.18,
+          3.58,
+          5.93,
+          8.18
         ],
-        "topMinusMid": -3.61,
-        "topAboveMid": false
+        "topMinusMid": 4.61,
+        "topAboveMid": true
       },
       {
         "monthKey": "2024-08",
         "n": 141,
-        "spearmanAlpha": -0.3,
-        "spearmanRaw": -0.3,
-        "pearsonAlpha": -0.515,
+        "spearmanAlpha": -0.5,
+        "spearmanRaw": -0.5,
+        "pearsonAlpha": -0.641,
         "bucketMeanAlpha": [
-          1.14,
-          2.86,
-          4.49,
-          1.96,
-          -2.92
+          2.92,
+          0.98,
+          3.24,
+          2.16,
+          -1.83
         ],
         "bucketMeanFwd": [
-          7.69,
-          9.41,
-          11.04,
-          8.51,
-          3.63
+          9.47,
+          7.53,
+          9.79,
+          8.72,
+          4.72
         ],
-        "topMinusMid": -7.41,
+        "topMinusMid": -5.07,
         "topAboveMid": false
       },
       {
         "monthKey": "2024-09",
         "n": 141,
-        "spearmanAlpha": 0.6,
-        "spearmanRaw": 0.6,
-        "pearsonAlpha": 0.64,
+        "spearmanAlpha": -0.3,
+        "spearmanRaw": -0.3,
+        "pearsonAlpha": -0.155,
         "bucketMeanAlpha": [
-          -9.74,
-          -1.01,
-          -3.17,
-          -6.39,
-          2.59
+          0.83,
+          -6.16,
+          -5.7,
+          -6.28,
+          -0.77
         ],
         "bucketMeanFwd": [
-          -4.25,
-          4.48,
-          2.32,
-          -0.9,
-          8.07
+          6.31,
+          -0.68,
+          -0.21,
+          -0.8,
+          4.71
         ],
-        "topMinusMid": 5.76,
+        "topMinusMid": 4.93,
         "topAboveMid": true
       },
       {
         "monthKey": "2024-10",
         "n": 141,
-        "spearmanAlpha": 0.8,
-        "spearmanRaw": 0.8,
-        "pearsonAlpha": 0.734,
+        "spearmanAlpha": 0,
+        "spearmanRaw": 0,
+        "pearsonAlpha": -0.061,
         "bucketMeanAlpha": [
-          -1.43,
-          -4.45,
-          1.09,
-          -1.2,
-          5.77
+          -1.91,
+          0.79,
+          1.54,
+          2.78,
+          -3.4
         ],
         "bucketMeanFwd": [
-          1.77,
-          -1.26,
-          4.28,
-          2,
-          8.96
+          1.28,
+          3.99,
+          4.73,
+          5.98,
+          -0.21
         ],
-        "topMinusMid": 4.68,
-        "topAboveMid": true
+        "topMinusMid": -4.93,
+        "topAboveMid": false
       },
       {
         "monthKey": "2024-11",
         "n": 141,
-        "spearmanAlpha": 0.5,
-        "spearmanRaw": 0.5,
-        "pearsonAlpha": 0.536,
+        "spearmanAlpha": 0.9,
+        "spearmanRaw": 0.9,
+        "pearsonAlpha": 0.824,
         "bucketMeanAlpha": [
-          -4.53,
-          -2.95,
-          2.61,
-          -3.52,
-          1.03
+          -3.12,
+          -3.02,
+          -2.9,
+          1.37,
+          0.24
         ],
         "bucketMeanFwd": [
-          -4.58,
-          -3.01,
-          2.56,
-          -3.58,
-          0.97
+          -3.17,
+          -3.07,
+          -2.96,
+          1.32,
+          0.19
         ],
-        "topMinusMid": -1.58,
-        "topAboveMid": false
+        "topMinusMid": 3.15,
+        "topAboveMid": true
       },
       {
         "monthKey": "2024-12",
         "n": 141,
-        "spearmanAlpha": -0.8,
-        "spearmanRaw": -0.8,
-        "pearsonAlpha": -0.747,
+        "spearmanAlpha": 0,
+        "spearmanRaw": 0,
+        "pearsonAlpha": -0.068,
         "bucketMeanAlpha": [
+          6.46,
           5.68,
-          10.7,
-          5.02,
-          1.02,
-          1.09
+          2.45,
+          0.54,
+          8.35
         ],
         "bucketMeanFwd": [
+          0.76,
           -0.02,
-          5.01,
-          -0.68,
-          -4.68,
-          -4.6
+          -3.24,
+          -5.15,
+          2.65
         ],
-        "topMinusMid": -3.92,
-        "topAboveMid": false
+        "topMinusMid": 5.9,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-01",
         "n": 141,
-        "spearmanAlpha": 0.3,
-        "spearmanRaw": 0.3,
-        "pearsonAlpha": 0.457,
+        "spearmanAlpha": 0,
+        "spearmanRaw": 0,
+        "pearsonAlpha": 0.271,
         "bucketMeanAlpha": [
-          -1.7,
-          1.43,
-          -1.75,
-          2.48,
-          0.5
+          1.01,
+          -0.31,
+          -1.76,
+          -2.15,
+          4.08
         ],
         "bucketMeanFwd": [
-          -9.8,
-          -6.67,
-          -9.84,
-          -5.62,
-          -7.59
+          -7.09,
+          -8.41,
+          -9.86,
+          -10.24,
+          -4.01
         ],
-        "topMinusMid": 2.25,
+        "topMinusMid": 5.85,
         "topAboveMid": true
       },
       {
         "monthKey": "2025-02",
         "n": 142,
-        "spearmanAlpha": 0.5,
-        "spearmanRaw": 0.5,
-        "pearsonAlpha": 0.689,
+        "spearmanAlpha": 0.8,
+        "spearmanRaw": 0.8,
+        "pearsonAlpha": 0.643,
         "bucketMeanAlpha": [
-          -1.81,
-          -5.62,
-          -1.07,
-          -2.31,
-          4.58
+          -5.56,
+          0,
+          -4.35,
+          3.43,
+          0.18
         ],
         "bucketMeanFwd": [
-          -2.33,
-          -6.14,
-          -1.59,
-          -2.83,
-          4.06
+          -6.08,
+          -0.52,
+          -4.87,
+          2.91,
+          -0.34
         ],
-        "topMinusMid": 5.65,
+        "topMinusMid": 4.53,
         "topAboveMid": true
       },
       {
         "monthKey": "2025-03",
         "n": 142,
-        "spearmanAlpha": 0.6,
-        "spearmanRaw": 0.6,
-        "pearsonAlpha": 0.492,
+        "spearmanAlpha": 1,
+        "spearmanRaw": 1,
+        "pearsonAlpha": 0.86,
         "bucketMeanAlpha": [
-          -1.56,
-          -2.82,
-          -5.18,
-          -0.02,
-          0.66
+          -6.79,
+          -4.26,
+          -3.42,
+          -2.64,
+          8.41
         ],
         "bucketMeanFwd": [
-          5.5,
-          4.24,
-          1.88,
-          7.05,
-          7.72
+          0.27,
+          2.81,
+          3.64,
+          4.42,
+          15.47
         ],
-        "topMinusMid": 5.84,
+        "topMinusMid": 11.83,
         "topAboveMid": true
       },
       {
         "monthKey": "2025-04",
         "n": 142,
-        "spearmanAlpha": -0.9,
-        "spearmanRaw": -0.9,
-        "pearsonAlpha": -0.873,
+        "spearmanAlpha": 0.1,
+        "spearmanRaw": 0.1,
+        "pearsonAlpha": -0.168,
         "bucketMeanAlpha": [
-          1.35,
-          0.87,
-          -3.65,
-          -1.54,
-          -8.42
+          1.07,
+          -3.6,
+          -6.91,
+          1.78,
+          -3.55
         ],
         "bucketMeanFwd": [
-          16.98,
-          16.5,
-          11.97,
-          14.09,
-          7.21
+          16.69,
+          12.03,
+          8.72,
+          17.41,
+          12.08
         ],
-        "topMinusMid": -4.77,
-        "topAboveMid": false
+        "topMinusMid": 3.35,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-05",
         "n": 142,
-        "spearmanAlpha": -0.7,
-        "spearmanRaw": -0.7,
-        "pearsonAlpha": -0.672,
+        "spearmanAlpha": -0.4,
+        "spearmanRaw": -0.4,
+        "pearsonAlpha": -0.526,
         "bucketMeanAlpha": [
-          -1.4,
-          3.72,
-          -0.56,
-          -1.71,
-          -6.17
+          1.49,
+          -1.78,
+          -2.51,
+          1.71,
+          -4.94
         ],
         "bucketMeanFwd": [
-          7.28,
-          12.4,
-          8.12,
-          6.97,
-          2.51
+          10.17,
+          6.9,
+          6.17,
+          10.39,
+          3.75
         ],
-        "topMinusMid": -5.61,
+        "topMinusMid": -2.43,
         "topAboveMid": false
       },
       {
         "monthKey": "2025-06",
         "n": 142,
-        "spearmanAlpha": -0.6,
-        "spearmanRaw": -0.6,
-        "pearsonAlpha": -0.59,
+        "spearmanAlpha": 0.1,
+        "spearmanRaw": 0.1,
+        "pearsonAlpha": -0.042,
         "bucketMeanAlpha": [
-          0.93,
-          -1.77,
-          2.39,
-          -3.93,
-          -2.94
+          1.29,
+          -3.34,
+          -3.83,
+          2.75,
+          -2.14
         ],
         "bucketMeanFwd": [
-          8.98,
-          6.27,
-          10.43,
-          4.11,
-          5.11
+          9.34,
+          4.7,
+          4.22,
+          10.79,
+          5.9
         ],
-        "topMinusMid": -5.32,
-        "topAboveMid": false
+        "topMinusMid": 1.69,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-07",
         "n": 142,
-        "spearmanAlpha": -0.3,
-        "spearmanRaw": -0.3,
-        "pearsonAlpha": -0.496,
+        "spearmanAlpha": -0.1,
+        "spearmanRaw": -0.1,
+        "pearsonAlpha": -0.121,
         "bucketMeanAlpha": [
-          1.18,
-          1.63,
-          -0.14,
-          3.6,
-          -4.64
+          1.16,
+          1.5,
+          -2.19,
+          -0.27,
+          1.43
         ],
         "bucketMeanFwd": [
-          8.76,
-          9.21,
-          7.45,
-          11.18,
-          2.94
+          8.74,
+          9.08,
+          5.4,
+          7.31,
+          9.02
         ],
-        "topMinusMid": -4.51,
-        "topAboveMid": false
+        "topMinusMid": 3.62,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-08",
         "n": 142,
-        "spearmanAlpha": -0.3,
-        "spearmanRaw": -0.3,
-        "pearsonAlpha": -0.337,
+        "spearmanAlpha": -0.2,
+        "spearmanRaw": -0.2,
+        "pearsonAlpha": -0.041,
         "bucketMeanAlpha": [
-          -1.35,
-          -0.49,
-          3.08,
-          -1.15,
-          -3.59
+          -1.32,
+          2.02,
+          -1.72,
+          -3.88,
+          1.32
         ],
         "bucketMeanFwd": [
-          2.31,
-          3.16,
-          6.73,
-          2.5,
-          0.07
+          2.33,
+          5.67,
+          1.93,
+          -0.23,
+          4.97
         ],
-        "topMinusMid": -6.66,
-        "topAboveMid": false
+        "topMinusMid": 3.04,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-09",
         "n": 143,
-        "spearmanAlpha": 0.1,
-        "spearmanRaw": 0.1,
-        "pearsonAlpha": -0.091,
+        "spearmanAlpha": 0.6,
+        "spearmanRaw": 0.6,
+        "pearsonAlpha": 0.642,
         "bucketMeanAlpha": [
-          0.52,
-          -4.48,
-          3.26,
-          2.88,
-          -4.24
+          -0.37,
+          -4.16,
+          -0.45,
+          1.6,
+          1.48
         ],
         "bucketMeanFwd": [
-          4.83,
-          -0.17,
-          7.56,
-          7.19,
-          0.07
+          3.94,
+          0.14,
+          3.86,
+          5.91,
+          5.78
         ],
-        "topMinusMid": -7.5,
-        "topAboveMid": false
+        "topMinusMid": 1.93,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-10",
         "n": 143,
-        "spearmanAlpha": -0.9,
-        "spearmanRaw": -0.9,
-        "pearsonAlpha": -0.716,
+        "spearmanAlpha": -0.3,
+        "spearmanRaw": -0.3,
+        "pearsonAlpha": -0.493,
         "bucketMeanAlpha": [
-          2.99,
-          7.72,
-          2.83,
-          2.07,
-          -2.04
+          5.26,
+          2.22,
+          2.59,
+          7.19,
+          -3.56
         ],
         "bucketMeanFwd": [
-          4.09,
-          8.81,
-          3.92,
-          3.16,
-          -0.95
+          6.35,
+          3.31,
+          3.68,
+          8.28,
+          -2.47
         ],
-        "topMinusMid": -4.87,
+        "topMinusMid": -6.15,
         "topAboveMid": false
       },
       {
         "monthKey": "2025-11",
         "n": 143,
-        "spearmanAlpha": -0.8,
-        "spearmanRaw": -0.8,
-        "pearsonAlpha": -0.656,
+        "spearmanAlpha": -0.5,
+        "spearmanRaw": -0.5,
+        "pearsonAlpha": -0.438,
         "bucketMeanAlpha": [
-          7.19,
-          12.79,
-          4.4,
-          6.85,
-          1.51
+          7.34,
+          10.47,
+          3.87,
+          4.45,
+          6.71
         ],
         "bucketMeanFwd": [
-          8.32,
-          13.92,
-          5.53,
-          7.98,
-          2.64
+          8.47,
+          11.6,
+          5,
+          5.57,
+          7.84
         ],
-        "topMinusMid": -2.88,
-        "topAboveMid": false
+        "topMinusMid": 2.84,
+        "topAboveMid": true
       },
       {
         "monthKey": "2025-12",
         "n": 143,
-        "spearmanAlpha": -0.6,
-        "spearmanRaw": -0.6,
-        "pearsonAlpha": -0.795,
+        "spearmanAlpha": 0.9,
+        "spearmanRaw": 0.9,
+        "pearsonAlpha": 0.872,
         "bucketMeanAlpha": [
-          14.83,
-          18.13,
-          5.4,
-          5.27,
-          5.87
+          7.6,
+          5.89,
+          9.26,
+          10.52,
+          16.78
         ],
         "bucketMeanFwd": [
-          6.69,
-          9.98,
-          -2.74,
-          -2.87,
-          -2.28
+          -0.54,
+          -2.26,
+          1.11,
+          2.38,
+          8.64
         ],
-        "topMinusMid": 0.47,
+        "topMinusMid": 7.53,
         "topAboveMid": true
       },
       {
         "monthKey": "2026-01",
         "n": 143,
-        "spearmanAlpha": 0.6,
-        "spearmanRaw": 0.6,
-        "pearsonAlpha": 0.577,
+        "spearmanAlpha": 0.9,
+        "spearmanRaw": 0.9,
+        "pearsonAlpha": 0.859,
         "bucketMeanAlpha": [
-          -2.78,
-          -4.53,
-          7.14,
-          8.78,
-          1.29
+          -4.96,
+          0.74,
+          0.83,
+          8.52,
+          4.88
         ],
         "bucketMeanFwd": [
-          0.46,
-          -1.29,
-          10.38,
-          12.02,
-          4.53
+          -1.72,
+          3.98,
+          4.07,
+          11.76,
+          8.12
         ],
-        "topMinusMid": -5.85,
-        "topAboveMid": false
+        "topMinusMid": 4.05,
+        "topAboveMid": true
       },
       {
         "monthKey": "2026-02",
         "n": 143,
-        "spearmanAlpha": 0.1,
-        "spearmanRaw": 0.1,
-        "pearsonAlpha": 0.088,
+        "spearmanAlpha": 1,
+        "spearmanRaw": 1,
+        "pearsonAlpha": 0.947,
         "bucketMeanAlpha": [
-          -9.33,
-          4.42,
-          10.29,
-          -2.96,
-          -3.51
+          -6.69,
+          -2.88,
+          2.03,
+          3.1,
+          3.81
         ],
         "bucketMeanFwd": [
-          -1.06,
-          12.68,
-          18.56,
-          5.31,
-          4.76
+          1.58,
+          5.39,
+          10.29,
+          11.36,
+          12.08
         ],
-        "topMinusMid": -13.8,
-        "topAboveMid": false
+        "topMinusMid": 1.79,
+        "topAboveMid": true
       },
       {
         "monthKey": "2026-03",
         "n": 144,
-        "spearmanAlpha": -0.6,
-        "spearmanRaw": -0.6,
-        "pearsonAlpha": -0.65,
+        "spearmanAlpha": 0.6,
+        "spearmanRaw": 0.6,
+        "pearsonAlpha": 0.441,
         "bucketMeanAlpha": [
-          2.71,
-          5.95,
-          10.13,
-          -1.01,
-          -8.09
+          -5.9,
+          -11.82,
+          12.86,
+          17.7,
+          -2.98
         ],
         "bucketMeanFwd": [
-          18.51,
-          21.75,
-          25.94,
-          14.79,
-          7.72
+          9.9,
+          3.99,
+          28.67,
+          33.5,
+          12.82
         ],
-        "topMinusMid": -18.22,
+        "topMinusMid": -15.84,
         "topAboveMid": false
       },
       {
         "monthKey": "2026-04",
         "n": 144,
-        "spearmanAlpha": 0.6,
-        "spearmanRaw": 0.6,
-        "pearsonAlpha": 0.445,
+        "spearmanAlpha": 0.7,
+        "spearmanRaw": 0.7,
+        "pearsonAlpha": 0.743,
         "bucketMeanAlpha": [
-          5.02,
-          0.84,
-          6.13,
-          5.54,
-          5.71
+          0.76,
+          3.16,
+          6.96,
+          7.24,
+          5.11
         ],
         "bucketMeanFwd": [
-          8.36,
-          4.18,
-          9.47,
-          8.89,
-          9.06
+          4.1,
+          6.5,
+          10.3,
+          10.58,
+          8.45
         ],
-        "topMinusMid": -0.41,
+        "topMinusMid": -1.85,
         "topAboveMid": false
       },
       {
@@ -1018,68 +1018,68 @@
         "n": 144,
         "spearmanAlpha": -0.2,
         "spearmanRaw": -0.2,
-        "pearsonAlpha": -0.374,
+        "pearsonAlpha": -0.269,
         "bucketMeanAlpha": [
-          4.39,
-          9.1,
-          1.79,
-          -2.04,
-          5.08
+          6.66,
+          2.5,
+          0.13,
+          7.66,
+          1.23
         ],
         "bucketMeanFwd": [
-          6.45,
-          11.16,
-          3.85,
-          0.02,
-          7.14
+          8.71,
+          4.56,
+          2.19,
+          9.72,
+          3.29
         ],
-        "topMinusMid": 3.29,
+        "topMinusMid": 1.1,
         "topAboveMid": true
       },
       {
         "monthKey": "2026-06",
         "n": 144,
-        "spearmanAlpha": 0.2,
-        "spearmanRaw": 0.2,
-        "pearsonAlpha": 0.261,
+        "spearmanAlpha": 0,
+        "spearmanRaw": 0,
+        "pearsonAlpha": 0.199,
         "bucketMeanAlpha": [
-          -2,
-          -1.54,
-          -6.45,
-          -4.29,
-          1.98
+          -1.2,
+          -2.32,
+          -5.1,
+          -9.59,
+          6.05
         ],
         "bucketMeanFwd": [
-          1.32,
-          1.78,
-          -3.13,
-          -0.96,
-          5.3
+          2.12,
+          1,
+          -1.78,
+          -6.26,
+          9.37
         ],
-        "topMinusMid": 8.43,
+        "topMinusMid": 11.15,
         "topAboveMid": true
       },
       {
         "monthKey": "2026-07",
         "n": 144,
-        "spearmanAlpha": -0.7,
-        "spearmanRaw": -0.7,
-        "pearsonAlpha": -0.679,
+        "spearmanAlpha": -0.9,
+        "spearmanRaw": -0.9,
+        "pearsonAlpha": -0.845,
         "bucketMeanAlpha": [
-          0.95,
-          -4.07,
-          0.38,
-          -2,
-          -7.58
+          2.45,
+          -2.64,
+          1.33,
+          -5.78,
+          -7.69
         ],
         "bucketMeanFwd": [
-          4.5,
-          -0.52,
-          3.93,
-          1.55,
-          -4.02
+          6.01,
+          0.92,
+          4.88,
+          -2.23,
+          -4.14
         ],
-        "topMinusMid": -7.96,
+        "topMinusMid": -9.02,
         "topAboveMid": false
       }
     ]
@@ -1112,44 +1112,44 @@
   },
   "calibration": {
     "<-35": {
-      "n": 244,
-      "hits": 144,
-      "stoppedFirst": 100,
+      "n": 465,
+      "hits": 285,
+      "stoppedFirst": 180,
       "neitherInHorizon": 0,
-      "hitRate": 59,
-      "confidence": 59
+      "hitRate": 61.3,
+      "confidence": 61
     },
     "-35..-15": {
-      "n": 650,
-      "hits": 427,
-      "stoppedFirst": 222,
-      "neitherInHorizon": 1,
-      "hitRate": 65.7,
-      "confidence": 66
+      "n": 514,
+      "hits": 322,
+      "stoppedFirst": 192,
+      "neitherInHorizon": 0,
+      "hitRate": 62.6,
+      "confidence": 63
     },
     "-15..15": {
-      "n": 1613,
-      "hits": 1018,
-      "stoppedFirst": 594,
-      "neitherInHorizon": 1,
-      "hitRate": 63.1,
+      "n": 875,
+      "hits": 555,
+      "stoppedFirst": 320,
+      "neitherInHorizon": 0,
+      "hitRate": 63.4,
       "confidence": 63
     },
     "15..35": {
-      "n": 1251,
-      "hits": 818,
-      "stoppedFirst": 432,
-      "neitherInHorizon": 1,
-      "hitRate": 65.4,
-      "confidence": 65
+      "n": 1086,
+      "hits": 695,
+      "stoppedFirst": 391,
+      "neitherInHorizon": 0,
+      "hitRate": 64,
+      "confidence": 64
     },
     ">=35": {
-      "n": 647,
-      "hits": 398,
-      "stoppedFirst": 249,
-      "neitherInHorizon": 0,
-      "hitRate": 61.5,
-      "confidence": 62
+      "n": 1465,
+      "hits": 964,
+      "stoppedFirst": 499,
+      "neitherInHorizon": 2,
+      "hitRate": 65.8,
+      "confidence": 66
     }
   },
   "perTickerSample": [

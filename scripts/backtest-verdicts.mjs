@@ -203,11 +203,29 @@ function momentum121(closes) {
 }
 const MOMENTUM_BLOCK_MAX = 10;
 
+// ---- Factor block weights (v3 — grid-searched; mirrors quantEngine.mjs/.ts) --
+// Adopted from scripts/weight-search.mjs (data/weight-search.json,
+// cluster-robust gate): trend 0 / RSI 5 / fundamentals 0 / momentum 20 /
+// sentiment 25, block points scaled by w/cap and the total renormalized to
+// the shipped 110-point scale so the ±100 clamp and the BUY>=35 / HOLD / SELL
+// thresholds keep their meaning.
+const FACTOR_WEIGHTS = { trend: 0, rsi: 5, fund: 0, mom: 20, sent: 25 };
+const FACTOR_CAPS = { trend: 25, rsi: 15, fund: 35, mom: 10, sent: 25 };
+const WEIGHT_SCALE = 110 / (FACTOR_WEIGHTS.trend + FACTOR_WEIGHTS.rsi + FACTOR_WEIGHTS.fund + FACTOR_WEIGHTS.mom + FACTOR_WEIGHTS.sent);
+const BLOCK_MULT = {
+  trend: (FACTOR_WEIGHTS.trend / FACTOR_CAPS.trend) * WEIGHT_SCALE,
+  rsi: (FACTOR_WEIGHTS.rsi / FACTOR_CAPS.rsi) * WEIGHT_SCALE,
+  fund: (FACTOR_WEIGHTS.fund / FACTOR_CAPS.fund) * WEIGHT_SCALE,
+  mom: (FACTOR_WEIGHTS.mom / FACTOR_CAPS.mom) * WEIGHT_SCALE,
+  sent: (FACTOR_WEIGHTS.sent / FACTOR_CAPS.sent) * WEIGHT_SCALE,
+};
+
 /**
- * Quant-core mirror (current engine): trend ±25, RSI ±15 (Wilder), sentiment
- * ±25 clamped /4, fundamentals ±35 via percentile composite (or absolute
- * tiers without percentiles), 12-1 momentum ±10, BUY >= 35, SELL needs 2
- * bearish votes. Must match services/verdict/quantEngine.mjs scoreVerdict.
+ * Quant-core mirror (current engine v3 weights): block points are scaled by
+ * FACTOR_WEIGHTS/FACTOR_CAPS and the total renormalized to the 110 scale
+ * (trend 10 / RSI 15 / sentiment 25 clamped /4 / fundamentals 0 — excluded by
+ * the weight search — / momentum 10), BUY >= 35, SELL needs 2 bearish votes.
+ * Must match services/verdict/quantEngine.mjs scoreVerdict.
  */
 function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0, sectorPercentiles }) {
   const pct = sectorPercentiles || {};
@@ -216,19 +234,19 @@ function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0, sector
   const rv = rsi(closes, 14);
 
   let score = 0;
-  if (trend === 'up') score += 25;
-  else if (trend === 'down') score -= 25;
+  if (trend === 'up') score += 25 * BLOCK_MULT.trend;
+  else if (trend === 'down') score -= 25 * BLOCK_MULT.trend;
   if (rv !== undefined) {
-    if (rv < 30) score += 15;
-    else if (rv < 45) score += 7;
-    else if (rv > 70) score -= 15;
-    else if (rv > 55) score -= 7;
+    if (rv < 30) score += 15 * BLOCK_MULT.rsi;
+    else if (rv < 45) score += 7 * BLOCK_MULT.rsi;
+    else if (rv > 70) score -= 15 * BLOCK_MULT.rsi;
+    else if (rv > 55) score -= 7 * BLOCK_MULT.rsi;
   }
-  score += Math.max(-25, Math.min(25, sentimentScore / 4));
+  score += Math.max(-25, Math.min(25, sentimentScore / 4)) * BLOCK_MULT.sent;
   if (fundamentals) {
     const comp = fundamentalsComposite(pct, fundamentals);
     if (comp !== undefined) {
-      score += comp;
+      score += comp * BLOCK_MULT.fund;
     } else {
       // Absolute-threshold fallback (no cross-sectional support available).
       let f = 0;
@@ -236,11 +254,11 @@ function scoreVerdict({ price, candles, fundamentals, sentimentScore = 0, sector
       if (fundamentals.netMargin !== undefined) f += fundamentals.netMargin > 20 ? 9 : fundamentals.netMargin > 5 ? 5 : fundamentals.netMargin > 0 ? 0 : -9;
       if (fundamentals.roe !== undefined) f += fundamentals.roe > 20 ? 8 : fundamentals.roe > 10 ? 4 : fundamentals.roe > 0 ? 0 : -8;
       if (fundamentals.peRatio !== undefined) f += fundamentals.peRatio > 0 && fundamentals.peRatio < 25 ? 6 : fundamentals.peRatio >= 25 && fundamentals.peRatio <= 60 ? 0 : -6;
-      score += Math.max(-35, Math.min(35, f));
+      score += Math.max(-35, Math.min(35, f)) * BLOCK_MULT.fund;
     }
   }
   const m121 = momentum121(closes);
-  if (m121 !== undefined) score += Math.max(-MOMENTUM_BLOCK_MAX, Math.min(MOMENTUM_BLOCK_MAX, m121 * 50));
+  if (m121 !== undefined) score += Math.max(-MOMENTUM_BLOCK_MAX, Math.min(MOMENTUM_BLOCK_MAX, m121 * 50)) * BLOCK_MULT.mom;
 
   score = Math.round(Math.max(-100, Math.min(100, score)));
   let action;
