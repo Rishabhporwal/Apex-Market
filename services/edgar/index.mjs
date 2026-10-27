@@ -387,6 +387,13 @@ function filtersFromQuery(q) {
     maxPe: numOrUndef(q.maxPe),
     minDividendYield: numOrUndef(q.minDividendYield),
     maxDividendYield: numOrUndef(q.maxDividendYield),
+    // Named presets (e.g. ?preset=quality) expand into their filter params so
+    // preset screens differ from the unfiltered universe. Mirrors
+    // src/services/screenerService.ts PRESETS.
+    ...(q.preset === 'quality' ? { minRevenueGrowth: 10, minNetMargin: 10, minRoe: 12 } : {}),
+    ...(q.preset === 'value' ? { maxPe: 18, minNetMargin: 8 } : {}),
+    ...(q.preset === 'dividend' ? { minDividendYield: 2 } : {}),
+    ...(q.preset === 'mega' ? { minMarketCap: 100_000_000_000 } : {}),
     minRevenueGrowth: numOrUndef(q.minRevenueGrowth),
     minNetMargin: numOrUndef(q.minNetMargin),
     minRoe: numOrUndef(q.minRoe),
