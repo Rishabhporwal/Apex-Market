@@ -19,7 +19,7 @@ interface DailyRow {
   reason?: string;
   earnings?: { earningsDate: string | null; daysUntil: number | null } | null;
   cachedAnalysis?: boolean;
-  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; target2?: number | null; etaTarget1Days?: number | null; etaTarget2Days?: number | null; etaReliable?: boolean | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; lowRR: boolean } | null;
+  tradePlan?: { entry: number | null; entryHigh?: number; stop: number | null; target1: number | null; target2?: number | null; etaTarget1Days?: number | null; etaTarget2Days?: number | null; etaReliable?: boolean | null; riskPerShare: number | null; riskPct?: number; rewardRisk: number | null; requiredRR?: number | null; geometryNote?: string | null; lowRR: boolean } | null;
   llm?: { promptTokens: number; completionTokens: number; costUsd: number; models: { model: string; promptTokens: number; completionTokens: number; costUsd: number }[] };
   error?: string;
 }
@@ -268,9 +268,10 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                       <div className="text-[10px] uppercase tracking-wide text-slate-400">Risk</div>
                       {r.tradePlan ? (
                         <div className="text-slate-900 font-medium">
-                          <span className={r.tradePlan.rewardRisk != null && r.tradePlan.rewardRisk >= 1.5 ? 'text-emerald-600' : 'text-amber-600'}>{r.tradePlan.rewardRisk != null ? `${r.tradePlan.rewardRisk.toFixed(2)}:1` : '—'}</span>
+                          <span className={r.tradePlan.rewardRisk != null && r.tradePlan.rewardRisk >= (r.tradePlan.requiredRR ?? 1.5) ? 'text-emerald-600' : 'text-amber-600'}>{r.tradePlan.rewardRisk != null ? `${r.tradePlan.rewardRisk.toFixed(2)}:1` : '—'}</span>
                           {' · '}${r.tradePlan.riskPerShare?.toFixed(2) ?? '—'}{r.tradePlan.riskPct != null ? ` (${r.tradePlan.riskPct.toFixed(1)}%)` : ''}
-                          {r.tradePlan.lowRR && <span className="text-amber-600 font-normal" title="Reward-to-risk below 1.5 — the plan targets less than 1.5x what you risk"> · ⚠ thin R:R</span>}
+                          {r.tradePlan.requiredRR != null && Math.abs(r.tradePlan.requiredRR - 1.5) > 1e-9 && <span className="text-slate-400 font-normal" title={`Adaptive required reward-to-risk from calibrated confidence (standard bar is 1.5x)`}> · R&gt;={r.tradePlan.requiredRR.toFixed(2).replace(/\.?0+$/, '')} (adaptive)</span>}
+                          {r.tradePlan.lowRR && <span className="text-amber-600 font-normal" title="Reward-to-risk below the required bar for this plan"> · ⚠ thin R:R</span>}
                         </div>
                       ) : (
                         <div className="text-slate-300">—</div>
@@ -281,6 +282,7 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
                       <div className="text-slate-900 font-medium">{fmt(r.price)}</div>
                     </div>
                   </div>
+                  {r.tradePlan?.geometryNote && <p className="mt-2 text-[11px] text-slate-400 font-mono tabular-nums">{r.tradePlan.geometryNote}</p>}
                   {r.reason && <p className="mt-3 text-xs text-slate-400 leading-relaxed line-clamp-2">{r.reason}</p>}
                 </div>
                 <ArrowUpRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition shrink-0 mt-1" />

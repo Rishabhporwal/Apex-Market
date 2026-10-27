@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.5'; // first-passage ETA (mu/sigma log-return drift model) replaces ATR-division ETA
+const VERDICT_ENGINE_VERSION = '2026-10-27.6'; // adaptive required R:R: confidence-scaled bar gated on 20d drift + news sentiment
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
@@ -399,15 +399,63 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   const stop = stopTargets.stopLoss;
   const riskPerShare = stop != null && stop < price ? price - stop : null;
 
-  // ---- Target geometry (target-geometry audit fix) ---------------------------
-  // If the structure target1 yields < 1.5R, extend target1 to at least
-  // price ± 1.5*riskPerShare and target2 to at least price ± 2.5*riskPerShare
-  // (2dp) — BUT only within structure: an extended target may not reach past
-  // the nearest overhead resistance (long side) / nearest support below
-  // (short side, mirrored) by more than 1 ATR. If even 1.5R is unreachable
-  // within structure, the plan is NOT tradable at current levels — wait.
-  // (Mirrored short-side handling is the same audit rationale applied to SELL
-  // plans; BUY/long geometry matches the audit text verbatim.)
+  // ---- 20-day drift of log closes (shared: adaptive R:R gate + ETA) ---------
+  // mu20 = mean daily log return of the last 20 closes; sigma20 = population
+  // variance of the same returns. Computed once, consumed by the adaptive
+  // required-R:R momentum gate below AND the first-passage ETA further down.
+  let mu20 = null;
+  let sigma20 = null;
+  {
+    const closes = candles.slice(-20).map((c) => Number(c?.close)).filter((n) => Number.isFinite(n) && n > 0);
+    if (closes.length >= 2) {
+      const rets = [];
+      for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+      if (rets.length >= 1) {
+        mu20 = rets.reduce((a, b) => a + b, 0) / rets.length;
+        sigma20 = rets.reduce((a, b) => a + (b - mu20) ** 2, 0) / rets.length;
+      }
+    }
+  }
+
+  // ---- Adaptive required R:R (confidence-scaled, gated on momentum + news) --
+  // requiredRR = clamp((1 - p + 0.10) / p, 1.0, 2.0) with p = calibrated
+  // confidence (0-1). Going BELOW the standard 1.5R is gated: the 20-day
+  // log-close drift must agree with the plan direction (|drift| > 0.02%/day)
+  // AND news sentiment must not disagree (bearish on BUY / bullish on SELL).
+  // When a gate blocks the relaxation the bar stays at 1.5R. A confidence
+  // formula result at or above 1.5R (weak conviction) is kept as-is — low
+  // confidence never relaxes the bar. HOLD plans stay at the standard 1.5R.
+  const confPct = confidence > 1 ? confidence : confidence * 100; // display %
+  const pConf = confidence > 1 ? confidence / 100 : confidence;
+  const rawRR = pConf > 0 ? Math.min(2, Math.max(1, (1 - pConf + 0.10) / pConf)) : 1.5;
+  const planDir = action === 'SELL' ? 'SELL' : action === 'BUY' ? 'BUY' : null;
+  let requiredRR = rawRR >= 1.5 ? rawRR : 1.5;
+  let momentumOk = null;
+  let newsOk = null;
+  let gateRelaxed = false;
+  if (planDir && rawRR < 1.5) {
+    momentumOk = mu20 != null && (planDir === 'SELL' ? mu20 < -0.0002 : mu20 > 0.0002);
+    newsOk = planDir === 'SELL' ? (news.sentimentScore ?? 0) <= 0 : (news.sentimentScore ?? 0) >= 0;
+    if (momentumOk && newsOk) {
+      requiredRR = rawRR;
+      gateRelaxed = true;
+    }
+  }
+  const rrLabel = (v) => {
+    const s = Number(v).toFixed(2);
+    return s.endsWith('.00') ? s.slice(0, -3) : s.endsWith('0') ? s.slice(0, -1) : s;
+  };
+
+  // ---- Target geometry (target-geometry audit fix + adaptive bar) -----------
+  // If the structure target1 yields < requiredRR, extend target1 to at least
+  // price ± requiredRR*riskPerShare and target2 to at least
+  // price ± (requiredRR+1)*riskPerShare (2dp) — BUT only within structure: an
+  // extended target may not reach past the nearest overhead resistance (long
+  // side) / nearest support below (short side, mirrored) by more than 1 ATR.
+  // If even requiredRR is unreachable within structure, the plan is NOT
+  // tradable at current levels — wait. (Mirrored short-side handling is the
+  // same audit rationale applied to SELL plans; BUY/long geometry matches the
+  // audit text verbatim.)
   let target1 = stopTargets.target1 ?? null;
   let target2 = stopTargets.target2 ?? null;
   let tradable = true;
@@ -420,14 +468,15 @@ async function generateVerdict(symbol, ctx, opts = {}) {
       : (supports || []).filter((s) => s < price).sort((a, b) => b - a)[0];
     // Structure ceiling/floor: nearest structure level ± 1 ATR of tolerance.
     const cap = structLvl != null ? (long ? structLvl + (atr14v ?? 0) : structLvl - (atr14v ?? 0)) : (long ? Infinity : -Infinity);
-    if (rewardRisk != null && Math.abs(rewardRisk) < 1.5) {
-      const ext1 = long ? price + 1.5 * riskPerShare : price - 1.5 * riskPerShare;
-      const ext2 = long ? price + 2.5 * riskPerShare : price - 2.5 * riskPerShare;
+    if (rewardRisk != null && Math.abs(rewardRisk) < requiredRR) {
+      const ext1 = long ? price + requiredRR * riskPerShare : price - requiredRR * riskPerShare;
+      const ext2 = long ? price + (requiredRR + 1) * riskPerShare : price - (requiredRR + 1) * riskPerShare;
       const ext1WithinStructure = long ? ext1 <= cap : ext1 >= cap;
       if (ext1WithinStructure) {
         target1 = long ? Math.max(target1, ext1) : Math.min(target1, ext1);
-        // target2: extend to 2.5R only when that also stays within structure;
-        // otherwise keep the structure target but stay monotonic vs target1.
+        // target2: extend to (requiredRR+1)R only when that also stays within
+        // structure; otherwise keep the structure target but stay monotonic
+        // vs target1.
         const ext2WithinStructure = long ? ext2 <= cap : ext2 >= cap;
         if (ext2WithinStructure) {
           target2 = long ? Math.max(target2 ?? target1, ext2) : Math.min(target2 ?? target1, ext2);
@@ -443,6 +492,19 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   }
   const rr1 = rewardRisk;
 
+  // Explain the adaptive bar whenever it deviates from the standard 1.5R.
+  if (tradable && requiredRR !== 1.5) {
+    if (gateRelaxed) {
+      geometryNote = `${rrLabel(requiredRR)}R accepted: confidence ${Math.round(confPct)}%, momentum +, news +; standard 1.5R`;
+    } else if (rawRR < 1.5) {
+      // A gate blocked the confidence-driven relaxation.
+      const reasons = [momentumOk === false ? 'momentum -' : null, newsOk === false ? 'news -' : null].filter(Boolean).join(', ');
+      geometryNote = `1.5R required: confidence ${Math.round(confPct)}%${reasons ? ` (${reasons})` : ''}`;
+    } else {
+      geometryNote = `${rrLabel(requiredRR)}R required: confidence ${Math.round(confPct)}%`;
+    }
+  }
+
     // ---- Time-to-target ETA (first-passage drift model) ------------------------
   // Replaces the naive |target - price| / ATR14 division: ATR is daily RANGE,
   // not drift, and first-passage time under drift+diffusion scales with the
@@ -455,31 +517,24 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   // trend does not support reaching the target — eta is null (unreliable).
   let etaT1 = null;
   let etaT2 = null;
-  {
-    const closes = candles.slice(-20).map((c) => Number(c?.close)).filter((n) => Number.isFinite(n) && n > 0);
-    if (closes.length >= 2) {
-      const rets = [];
-      for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
-      if (rets.length >= 1) {
-        const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
-        const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
-        // Drift measured TOWARD the target direction (SELL plan → -average).
-        const etaFor = (tgt) => {
-          if (tgt == null || !(price > 0) || !(tgt > 0)) return null;
-          const signedRatio = Math.log(tgt / price);
-          if (!Number.isFinite(signedRatio)) return null;
-          const dist = Math.abs(signedRatio);
-          if (dist === 0) return 1;
-          // driftToward > 0 means the recent trend points at this target.
-          const driftToward = signedRatio > 0 ? mean : -mean;
-          if (!(driftToward > variance / 2)) return null; // diffusion dominates — no honest ETA
-          const eta = Math.ceil(dist / (driftToward - variance / 2));
-          return Number.isFinite(eta) && eta > 0 ? Math.max(1, eta) : null;
-        };
-        etaT1 = etaFor(target1);
-        etaT2 = etaFor(target2);
-      }
-    }
+  if (mu20 != null && sigma20 != null) {
+    const mean = mu20;
+    const variance = sigma20;
+    // Drift measured TOWARD the target direction (SELL plan → -average).
+    const etaFor = (tgt) => {
+      if (tgt == null || !(price > 0) || !(tgt > 0)) return null;
+      const signedRatio = Math.log(tgt / price);
+      if (!Number.isFinite(signedRatio)) return null;
+      const dist = Math.abs(signedRatio);
+      if (dist === 0) return 1;
+      // driftToward > 0 means the recent trend points at this target.
+      const driftToward = signedRatio > 0 ? mean : -mean;
+      if (!(driftToward > variance / 2)) return null; // diffusion dominates — no honest ETA
+      const eta = Math.ceil(dist / (driftToward - variance / 2));
+      return Number.isFinite(eta) && eta > 0 ? Math.max(1, eta) : null;
+    };
+    etaT1 = etaFor(target1);
+    etaT2 = etaFor(target2);
   }
   const etaReliable = etaT1 != null && etaT2 != null;
 
@@ -495,11 +550,15 @@ const tradePlan = {
     riskPerShare: riskPerShare != null ? Number(riskPerShare.toFixed(2)) : null,
     rewardRisk: rr1 != null ? Number(Math.abs(rr1).toFixed(2)) : null,
     riskPct: riskPerShare != null && price > 0 ? Number(((riskPerShare / price) * 100).toFixed(2)) : null,
-    lowRR: rr1 != null && Math.abs(rr1) < 1.5,
-    // Geometry audit: false = even 1.5R is unreachable within structure — the
-    // daily report and UI should treat this as "wait", not a tradeable plan.
+    // Adaptive required R:R (1.5R unless confidence + momentum + news gates
+    // relax it) and the receipt explaining any deviation from the standard.
+    requiredRR,
+    lowRR: rr1 != null && Math.abs(rr1) < requiredRR,
+    // Geometry audit: false = even requiredRR is unreachable within structure
+    // — the daily report and UI should treat this as "wait", not a tradeable
+    // plan.
     tradable,
-    ...(geometryNote ? { note: geometryNote } : {}),
+    ...(geometryNote ? { geometryNote } : {}),
     gapWarning: 'Stops are not guaranteed on gaps — size for the gap, not the stop.',
   };
 
