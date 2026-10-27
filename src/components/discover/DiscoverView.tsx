@@ -96,7 +96,8 @@ export function DiscoverView({ onSelectSymbol }: DiscoverViewProps) {
       const res = await fetch(`/api/screener?preset=${id}`);
       if (res.ok) {
         const data = await res.json();
-        setResults(Array.isArray(data) ? data : (data.stocks ?? []));
+        // gateway envelope: {warehouseReady, count, filters, results}
+        setResults(Array.isArray(data) ? data : (data.results ?? []));
       }
     } finally {
       setLoading(false);
