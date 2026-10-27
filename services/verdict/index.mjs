@@ -20,7 +20,7 @@ loadEnvLocal();
  * Bump when scoring math, prompt, or narrative semantics change — the research
  * cache keys on this, so bumping invalidates every cached analysis at once.
  */
-const VERDICT_ENGINE_VERSION = '2026-10-27.4'; // HOLD/NEUTRAL defensive trade plan (levels.mjs no longer returns {} for non-BUY/SELL)
+const VERDICT_ENGINE_VERSION = '2026-10-27.5'; // first-passage ETA (mu/sigma log-return drift model) replaces ATR-division ETA
 const RESEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // narrative/ensemble live 24h
 const RESEARCH_CACHE_DIR = path.join(process.env.DATA_DIR || '/app/data', 'verdict-cache');
 
@@ -443,18 +443,45 @@ async function generateVerdict(symbol, ctx, opts = {}) {
   }
   const rr1 = rewardRisk;
 
-    // ---- Time-to-target estimate (honest, volatility-based) -------------------
-  // Expected trading days for price to travel to each target, using ATR14 as
-  // the average daily move. An estimate, not a promise — capped at the trade
-  // window; label says 'estimate'.
-  const etaDays = (tgt) => {
-    if (tgt == null || !atr14v || atr14v <= 0) return null;
-    const dist = Math.abs(tgt - price);
-    if (dist <= 0) return 1;
-    return Math.max(1, Math.round(dist / atr14v));
-  };
-  const etaT1 = etaDays(target1);
-  const etaT2 = etaDays(target2);
+    // ---- Time-to-target ETA (first-passage drift model) ------------------------
+  // Replaces the naive |target - price| / ATR14 division: ATR is daily RANGE,
+  // not drift, and first-passage time under drift+diffusion scales with the
+  // diffusion term. mu = mean of the last 20 daily log closes' returns,
+  // signed TOWARD the target (negated for SELL plans where target1 < price).
+  // sigma = population std-dev of those same returns. For a target T with
+  // ratio r = ln(T/price), an honest ETA exists only when the drift toward
+  // the target beats the diffusion hurdle sigma^2/2; then
+  // eta = ceil(r / (drift - sigma^2/2)) trading days (min 1). Otherwise the
+  // trend does not support reaching the target — eta is null (unreliable).
+  let etaT1 = null;
+  let etaT2 = null;
+  {
+    const closes = candles.slice(-20).map((c) => Number(c?.close)).filter((n) => Number.isFinite(n) && n > 0);
+    if (closes.length >= 2) {
+      const rets = [];
+      for (let i = 1; i < closes.length; i++) rets.push(Math.log(closes[i] / closes[i - 1]));
+      if (rets.length >= 1) {
+        const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+        const variance = rets.reduce((a, b) => a + (b - mean) ** 2, 0) / rets.length;
+        // Drift measured TOWARD the target direction (SELL plan → -average).
+        const etaFor = (tgt) => {
+          if (tgt == null || !(price > 0) || !(tgt > 0)) return null;
+          const signedRatio = Math.log(tgt / price);
+          if (!Number.isFinite(signedRatio)) return null;
+          const dist = Math.abs(signedRatio);
+          if (dist === 0) return 1;
+          // driftToward > 0 means the recent trend points at this target.
+          const driftToward = signedRatio > 0 ? mean : -mean;
+          if (!(driftToward > variance / 2)) return null; // diffusion dominates — no honest ETA
+          const eta = Math.ceil(dist / (driftToward - variance / 2));
+          return Number.isFinite(eta) && eta > 0 ? Math.max(1, eta) : null;
+        };
+        etaT1 = etaFor(target1);
+        etaT2 = etaFor(target2);
+      }
+    }
+  }
+  const etaReliable = etaT1 != null && etaT2 != null;
 
 const tradePlan = {
     entry: entryLow != null ? Number(entryLow.toFixed(2)) : null,
@@ -464,6 +491,7 @@ const tradePlan = {
     target2: target2 != null ? Number(target2.toFixed(2)) : null,
     etaTarget1Days: etaT1,
     etaTarget2Days: etaT2,
+    etaReliable,
     riskPerShare: riskPerShare != null ? Number(riskPerShare.toFixed(2)) : null,
     rewardRisk: rr1 != null ? Number(Math.abs(rr1).toFixed(2)) : null,
     riskPct: riskPerShare != null && price > 0 ? Number(((riskPerShare / price) * 100).toFixed(2)) : null,
