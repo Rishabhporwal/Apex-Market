@@ -118,9 +118,9 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
   const tickerTape = (
     <div className="border-b border-slate-100 bg-[#fafafa] px-4 py-1.5 text-xs">
       <div className="flex items-center justify-between overflow-x-auto gap-6 no-scrollbar">
-        <div className="flex items-center gap-2 text-slate-500 font-mono shrink-0">
+        <div className="flex items-center gap-2 text-muted font-mono shrink-0">
           <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Market Pulse</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted">Market Pulse</span>
         </div>
 
         <div className="flex items-center gap-6 text-xs font-mono shrink-0 tabular-nums">
@@ -130,9 +130,9 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
               const cleanName = idx.symbol === '^GSPC' ? 'S&P 500' : idx.symbol === '^IXIC' ? 'NASDAQ' : idx.symbol === '^DJI' ? 'DOW' : 'RUSSELL 2K';
               return (
                 <div key={idx.symbol} className="flex items-center gap-2">
-                  <span className="font-medium text-slate-400">{cleanName}</span>
+                  <span className="font-medium text-muted">{cleanName}</span>
                   <span className="text-slate-700">{idx.price.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</span>
-                  <span className={`flex items-center text-[11px] font-semibold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <span className={`flex items-center text-xs font-semibold ${isPos ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {isPos ? <ArrowUpRight className="h-3 w-3 mr-0.5" /> : <ArrowDownRight className="h-3 w-3 mr-0.5" />}
                     {isPos ? '+' : ''}{idx.changePercent.toFixed(2)}%
                   </span>
@@ -140,7 +140,7 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
               );
             })
           ) : (
-            <div className="flex items-center gap-6 text-slate-400">
+            <div className="flex items-center gap-6 text-muted">
               <span>S&P 500: 5,864.6 (+0.40%)</span>
               <span>NASDAQ: 18,374.8 (+0.63%)</span>
               <span>DOW: 43,275.9 (+0.09%)</span>
@@ -155,7 +155,7 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
   const searchBox = (
     <div className="relative w-full max-w-md flex-1">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" />
         <input
           type="text"
           placeholder={`Search ticker or company (e.g. NVDA, Apple, TSLA)...`}
@@ -164,10 +164,10 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
           onKeyDown={(e) => {
             if (e.key === 'Enter') submitSearch();
           }}
-          className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-20 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-100 font-mono"
+          className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-20 py-2 text-sm text-slate-900 placeholder-muted outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15 font-mono"
         />
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-          <span className="rounded bg-slate-50 px-1.5 py-0.5 text-[10px] font-mono text-slate-400 border border-slate-200">
+          <span className="rounded bg-slate-50 px-1.5 py-0.5 text-xs font-mono text-muted border border-slate-200">
             ↵ Enter
           </span>
         </div>
@@ -176,7 +176,7 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
       {/* Autocomplete Dropdown */}
       {searchResults.length > 0 && (
         <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-2.5 py-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted px-2.5 py-1">
             Matching Symbols
           </div>
           {searchResults.map((item) => (
@@ -191,9 +191,9 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono font-bold text-slate-900">{item.symbol}</span>
-                <span className="text-xs text-slate-500 truncate max-w-[220px]">{item.name}</span>
+                <span className="text-xs text-muted truncate max-w-[220px]">{item.name}</span>
               </div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase">Equity</span>
+              <span className="text-xs font-mono text-muted uppercase">Equity</span>
             </button>
           ))}
         </div>
@@ -202,7 +202,7 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
   );
 
   return (
-    <div className="flex min-h-screen bg-[#fafafa] text-slate-900 font-sans selection:bg-cyan-100 selection:text-cyan-900">
+    <div className="flex min-h-screen bg-[#fafafa] text-slate-900 font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* ---- Vertical Sidebar (wide screens) ---- */}
       <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
         {/* Brand */}
@@ -213,13 +213,13 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
           <div>
             <div className="flex items-center gap-2">
               <span className="text-lg font-bold tracking-tight text-slate-900 font-sans">
-                Trade<span className="text-slate-400">xa</span>
+                Trade<span className="text-muted">xa</span>
               </span>
-              <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500 border border-slate-200">
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-muted border border-slate-200">
                 PRO 2.0
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 font-mono">Stock Intelligence</p>
+            <p className="text-xs text-muted font-mono">Stock Intelligence</p>
           </div>
         </div>
 
@@ -236,11 +236,11 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
                 onClick={() => setActiveTab(item.id)}
                 className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium cursor-pointer transition-all text-left ${
                   isActive
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'text-muted hover:text-slate-900 hover:bg-slate-100'
                 }`}
               >
-                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-muted'}`} />
                 <span>{item.label}</span>
               </button>
             );
@@ -249,16 +249,16 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
 
         {/* Quick tickers — sidebar bottom */}
         <div className="border-t border-slate-100 px-3 py-3">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Quick Tickers</div>
+          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted">Quick Tickers</div>
           <div className="flex flex-wrap gap-1.5">
             {quickTickers.map((t) => (
               <button
                 key={t}
                 onClick={() => onSelectSymbol(t)}
-                className={`px-2 py-0.5 text-[11px] font-mono rounded border transition-colors tabular-nums ${
+                className={`px-2 py-0.5 text-xs font-mono rounded border transition-colors tabular-nums ${
                   selectedSymbol === t
-                    ? 'bg-slate-900 text-white font-semibold border-slate-900'
-                    : 'bg-white text-slate-500 hover:text-slate-900 hover:border-slate-300 border-slate-200'
+                    ? 'bg-accent text-white font-semibold border-accent'
+                    : 'bg-white text-muted hover:text-slate-900 hover:border-slate-300 border-slate-200'
                 }`}
               >
                 {t}
@@ -282,7 +282,7 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
                 <TrendingUp className="h-4 w-4 text-white" />
               </div>
               <span className="text-base font-bold tracking-tight text-slate-900">
-                Trade<span className="text-slate-400">xa</span>
+                Trade<span className="text-muted">xa</span>
               </span>
             </div>
 
@@ -297,13 +297,13 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-medium transition"
                   title="Configure LLMs and Deep Financial AI"
                 >
-                  <Sparkles className="h-3.5 w-3.5 text-slate-400" />
+                  <Sparkles className="h-3.5 w-3.5 text-muted" />
                   <span className="hidden sm:inline">AI Models</span>
                 </button>
               )}
 
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-900">
-                <span className="text-xs text-slate-400">Active:</span>
+                <span className="text-xs text-slate-300">Active:</span>
                 <span className="font-mono font-bold text-sm text-white tracking-wide">{selectedSymbol}</span>
               </div>
             </div>
@@ -322,11 +322,11 @@ export function AppShell({ activeTab, setActiveTab, selectedSymbol, onSelectSymb
                   onClick={() => setActiveTab(item.id)}
                   className={`flex items-center gap-2 whitespace-nowrap px-3 py-2 text-xs font-medium rounded-lg cursor-pointer transition-all ${
                     isActive
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                      ? 'bg-accent text-white'
+                      : 'text-muted hover:text-slate-900 hover:bg-slate-100'
                   }`}
                 >
-                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-muted'}`} />
                   <span>{item.label}</span>
                 </button>
               );

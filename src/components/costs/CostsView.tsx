@@ -79,11 +79,11 @@ function StatCard({ label, value, sub, icon: Icon, tone = 'slate' }: {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
-        <Icon className={`h-4 w-4 ${tone === 'emerald' ? 'text-emerald-600' : 'text-slate-400'}`} />
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted">{label}</span>
+        <Icon className={`h-4 w-4 ${tone === 'emerald' ? 'text-emerald-600' : 'text-muted'}`} />
       </div>
       <div className="mt-1.5 text-2xl font-bold tabular-nums text-slate-900">{value}</div>
-      {sub && <div className="mt-0.5 text-[11px] text-slate-400 tabular-nums">{sub}</div>}
+      {sub && <div className="mt-0.5 text-xs text-muted tabular-nums">{sub}</div>}
     </div>
   );
 }
@@ -91,9 +91,9 @@ function StatCard({ label, value, sub, icon: Icon, tone = 'slate' }: {
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white py-10 text-center">
-      <AlertCircle className="h-5 w-5 text-slate-300" />
-      <p className="mt-2 text-sm text-slate-400">{message}</p>
-      <p className="mt-1 text-xs text-slate-300">Usage is recorded from now on — run an AI analysis to populate this view.</p>
+      <AlertCircle className="h-5 w-5 text-muted" />
+      <p className="mt-2 text-sm text-muted">{message}</p>
+      <p className="mt-1 text-xs text-muted">Usage is recorded from now on — run an AI analysis to populate this view.</p>
     </div>
   );
 }
@@ -140,7 +140,7 @@ export function CostsView() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">💰 Costs & Token Usage</h1>
-          <p className="text-xs text-slate-400">Every LLM call is recorded to the usage ledger — per day, per stock, with cache savings.</p>
+          <p className="text-xs text-muted">Every LLM call is recorded to the usage ledger — per day, per stock, with cache savings.</p>
         </div>
         <button
           onClick={() => void load()}
@@ -192,17 +192,17 @@ export function CostsView() {
           {/* Per-day view */}
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-slate-400" />
+              <CalendarDays className="h-4 w-4 text-muted" />
               <h2 className="text-sm font-semibold text-slate-900">Usage per day</h2>
-              <span className="text-[11px] text-slate-400">(last {data?.days ?? 30} days)</span>
+              <span className="text-xs text-muted">(last {data?.days ?? 30} days)</span>
             </div>
             {daily.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-400">No usage in this window.</p>
+              <p className="mt-4 text-sm text-muted">No usage in this window.</p>
             ) : (
               <div className="mt-4 space-y-1.5">
                 {[...daily].reverse().map((d) => (
                   <div key={d.date} className="flex items-center gap-3 text-xs">
-                    <span className="w-24 shrink-0 font-mono text-slate-500 tabular-nums">{d.date}</span>
+                    <span className="w-24 shrink-0 font-mono text-muted tabular-nums">{d.date}</span>
                     <div className="h-4 min-w-0 flex-1 rounded bg-slate-100">
                       <div
                         className="h-4 rounded bg-cyan-600/80"
@@ -211,10 +211,10 @@ export function CostsView() {
                       />
                     </div>
                     <span className="w-14 shrink-0 text-right font-mono text-slate-600 tabular-nums">{d.calls} calls</span>
-                    <span className="w-16 shrink-0 text-right font-mono text-slate-500 tabular-nums">{fmtTokens((d.promptTokens || 0) + (d.completionTokens || 0))} tok</span>
+                    <span className="w-16 shrink-0 text-right font-mono text-muted tabular-nums">{fmtTokens((d.promptTokens || 0) + (d.completionTokens || 0))} tok</span>
                     <span className="w-16 shrink-0 text-right font-mono font-semibold text-slate-900 tabular-nums">{fmtUsd(d.costUsd || 0)}</span>
                     {d.cachedHits > 0 && (
-                      <span className="w-20 shrink-0 text-right font-mono text-[11px] text-emerald-600 tabular-nums">+{d.cachedHits} cached</span>
+                      <span className="w-20 shrink-0 text-right font-mono text-xs text-emerald-600 tabular-nums">+{d.cachedHits} cached</span>
                     )}
                   </div>
                 ))}
@@ -225,16 +225,16 @@ export function CostsView() {
           {/* Per-stock table */}
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-slate-400" />
+              <Building2 className="h-4 w-4 text-muted" />
               <h2 className="text-sm font-semibold text-slate-900">Usage per stock</h2>
             </div>
             {bySymbol.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-400">No per-symbol usage in this window.</p>
+              <p className="mt-4 text-sm text-muted">No per-symbol usage in this window.</p>
             ) : (
               <div className="mt-3 overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                    <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-muted">
                       <th className="py-2 pr-4">Symbol</th>
                       <th className="py-2 pr-4 text-right">Analyses</th>
                       <th className="py-2 pr-4 text-right">Tokens</th>
@@ -251,7 +251,7 @@ export function CostsView() {
                         <td className="py-2 pr-4 text-right font-mono text-slate-600 tabular-nums">{fmtTokens(s.tokens || 0)}</td>
                         <td className="py-2 pr-4 text-right font-mono text-emerald-600 tabular-nums">{s.cachedHits || 0}</td>
                         <td className="py-2 pr-4 text-right font-mono font-semibold text-slate-900 tabular-nums">{fmtUsd(s.costUsd || 0)}</td>
-                        <td className="py-2 text-right font-mono text-slate-400 tabular-nums">{s.lastAnalyzed ? fmtTime(s.lastAnalyzed) : '—'}</td>
+                        <td className="py-2 text-right font-mono text-muted tabular-nums">{s.lastAnalyzed ? fmtTime(s.lastAnalyzed) : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -263,21 +263,21 @@ export function CostsView() {
           {/* Recent calls */}
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-slate-400" />
+              <ListChecks className="h-4 w-4 text-muted" />
               <h2 className="text-sm font-semibold text-slate-900">Recent LLM calls</h2>
             </div>
             {recent.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-400">No calls recorded yet.</p>
+              <p className="mt-4 text-sm text-muted">No calls recorded yet.</p>
             ) : (
               <div className="mt-3 divide-y divide-slate-50">
                 {recent.map((c, i) => (
                   <div key={i} className="flex items-center gap-3 py-2 text-xs">
-                    <span className="w-32 shrink-0 font-mono text-slate-400 tabular-nums">{fmtTime(c.ts)}</span>
+                    <span className="w-32 shrink-0 font-mono text-muted tabular-nums">{fmtTime(c.ts)}</span>
                     <span className="w-16 shrink-0 font-mono font-bold text-slate-900">{c.symbol || '—'}</span>
-                    <span className="hidden w-24 shrink-0 rounded bg-slate-50 px-1.5 py-0.5 text-center text-[10px] font-mono text-slate-500 border border-slate-100 sm:block">{c.context}</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-slate-500">{c.model}</span>
+                    <span className="hidden w-24 shrink-0 rounded bg-slate-50 px-1.5 py-0.5 text-center text-xs font-mono text-muted border border-slate-100 sm:block">{c.context}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-muted">{c.model}</span>
                     {c.cachedHit ? (
-                      <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 border border-emerald-100">cache hit · $0</span>
+                      <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-600 border border-emerald-100">cache hit · $0</span>
                     ) : (
                       <span className="w-28 shrink-0 text-right font-mono text-slate-600 tabular-nums">{fmtTokens((c.promptTokens || 0) + (c.completionTokens || 0))} tok</span>
                     )}

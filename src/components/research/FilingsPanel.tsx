@@ -50,8 +50,8 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
 
   if (loading) {
     return (
-      <div className="glass-panel rounded-2xl p-12 text-center text-slate-500 font-mono">
-        <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-cyan-600" />
+      <div className="glass-panel rounded-2xl p-12 text-center text-muted font-mono">
+        <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-3 text-accent" />
         Retrieving SEC EDGAR filings & parsing earnings call transcripts for {symbol}...
       </div>
     );
@@ -59,7 +59,7 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
 
   const getFilingBadgeColor = (type: string) => {
     if (type.includes('10-K')) return 'bg-purple-50 text-purple-600 border-purple-200';
-    if (type.includes('10-Q')) return 'bg-cyan-50 text-cyan-700 border-cyan-200';
+    if (type.includes('10-Q')) return 'bg-surface text-muted border-line';
     if (type.includes('8-K')) return 'bg-amber-50 text-amber-600 border-amber-200';
     return 'bg-blue-50 text-blue-600 border-blue-200';
   };
@@ -72,11 +72,11 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
           onClick={() => setActiveSubTab('transcripts')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-medium transition ${
             activeSubTab === 'transcripts'
-              ? 'bg-cyan-50 text-cyan-700 border border-cyan-200 shadow-sm'
-              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+              ? 'bg-blue-50 text-accent border border-blue-200 shadow-sm'
+              : 'text-muted hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          <Sparkles className="h-4 w-4 text-cyan-600" />
+          <Sparkles className="h-4 w-4 text-slate-500" />
           <span>Earnings Call Transcripts & Breakdown</span>
         </button>
 
@@ -84,11 +84,11 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
           onClick={() => setActiveSubTab('filings')}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-mono font-medium transition ${
             activeSubTab === 'filings'
-              ? 'bg-cyan-50 text-cyan-700 border border-cyan-200 shadow-sm'
-              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+              ? 'bg-blue-50 text-accent border border-blue-200 shadow-sm'
+              : 'text-muted hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
-          <FileText className="h-4 w-4 text-cyan-600" />
+          <FileText className="h-4 w-4 text-slate-500" />
           <span>SEC EDGAR Filings (10-K, 10-Q, 8-K)</span>
         </button>
       </div>
@@ -102,11 +102,11 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-bold text-slate-900 font-sans">{symbol} Earnings Call: {t.quarter}</h3>
-                    <span className="text-xs font-mono text-slate-500 bg-slate-50 px-2.5 py-0.5 rounded-full">
+                    <span className="text-xs font-mono text-muted bg-slate-50 px-2.5 py-0.5 rounded-full">
                       {t.date}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 font-mono mt-1">Management Conference Call & Prepared Remarks Analysis</p>
+                  <p className="text-xs text-muted font-mono mt-1">Management Conference Call & Prepared Remarks Analysis</p>
                 </div>
 
                 <div className="flex items-center gap-3 font-mono text-xs">
@@ -125,10 +125,10 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
 
               {/* Executive Summary */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div className="text-[11px] font-mono uppercase text-cyan-600 font-bold mb-1">
+                <div className="text-xs font-mono uppercase text-muted font-bold mb-1">
                   Executive Briefing & Tone
                 </div>
-                <p className="text-xs text-slate-400 leading-relaxed font-sans">{t.executiveSummary}</p>
+                <p className="text-xs text-muted leading-relaxed font-sans">{t.executiveSummary}</p>
               </div>
 
               {/* Positive Drivers vs Headwinds Grid */}
@@ -137,7 +137,7 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
                   <div className="flex items-center gap-2 text-xs font-mono font-bold text-emerald-600 mb-2">
                     <CheckCircle2 className="h-4 w-4" /> Operational Highlights & Strengths
                   </div>
-                  <ul className="space-y-2 text-xs text-slate-400 font-sans">
+                  <ul className="space-y-2 text-xs text-muted font-sans">
                     {t.positiveHighlights.map((h, i) => (
                       <li key={i} className="flex items-start gap-2">
                         <span className="text-emerald-600 font-bold">•</span>
@@ -151,7 +151,7 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
                   <div className="flex items-center gap-2 text-xs font-mono font-bold text-amber-600 mb-2">
                     <AlertCircle className="h-4 w-4" /> Disclosed Headwinds & Supply Constraints
                   </div>
-                  <ul className="space-y-2 text-xs text-slate-400 font-sans">
+                  <ul className="space-y-2 text-xs text-muted font-sans">
                     {t.concernsOrHeadwinds.map((c, i) => (
                       <li key={i} className="flex items-start gap-2">
                         <span className="text-amber-600 font-bold">•</span>
@@ -164,10 +164,10 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
 
               {/* Forward Guidance Box */}
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div className="text-[11px] font-mono uppercase text-cyan-600 font-bold mb-1 flex items-center gap-1.5">
+                <div className="text-xs font-mono uppercase text-muted font-bold mb-1 flex items-center gap-1.5">
                   <TrendingUp className="h-3.5 w-3.5" /> Forward Looking Outlook & Financial Guidance
                 </div>
-                <p className="text-xs text-slate-400 font-sans leading-relaxed">{t.futureGuidance}</p>
+                <p className="text-xs text-muted font-sans leading-relaxed">{t.futureGuidance}</p>
               </div>
             </div>
           ))}
@@ -180,13 +180,13 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
           <div className="flex items-center justify-between mb-4 border-b border-slate-200 pb-3">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-sans">Official SEC EDGAR Regulatory Filings</h3>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">Direct verifiable submissions to the U.S. Securities and Exchange Commission</p>
+              <p className="text-xs text-muted font-mono mt-0.5">Direct verifiable submissions to the U.S. Securities and Exchange Commission</p>
             </div>
             <a
               href={`https://www.sec.gov/edgar/searchedgar/companysearch?company=${symbol}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 text-xs font-mono text-cyan-600 hover:text-cyan-700 transition"
+              className="flex items-center gap-1 text-xs font-mono text-accent hover:text-accent-hover transition"
             >
               <span>View full SEC EDGAR Index</span>
               <ExternalLink className="h-3.5 w-3.5" />
@@ -204,21 +204,21 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
                     <span className={`px-2 py-0.5 rounded text-xs font-mono font-bold border ${getFilingBadgeColor(filing.type)}`}>
                       {filing.type}
                     </span>
-                    <span className="text-xs font-mono text-slate-500 flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5 text-slate-500" /> Filed: {filing.date}
+                    <span className="text-xs font-mono text-muted flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5 text-muted" /> Filed: {filing.date}
                     </span>
                     {filing.periodEnd && (
-                      <span className="text-xs font-mono text-slate-500">Period End: {filing.periodEnd}</span>
+                      <span className="text-xs font-mono text-muted">Period End: {filing.periodEnd}</span>
                     )}
                   </div>
 
                   <h4 className="text-sm font-semibold text-slate-900 font-sans">{filing.title}</h4>
 
                   {filing.keyPoints && (
-                    <div className="mt-2 space-y-1 text-xs text-slate-500 font-sans">
+                    <div className="mt-2 space-y-1 text-xs text-muted font-sans">
                       {filing.keyPoints.map((pt, i) => (
                         <div key={i} className="flex items-center gap-1.5">
-                          <span className="text-cyan-600">›</span>
+                          <span className="text-muted">›</span>
                           <span>{pt}</span>
                         </div>
                       ))}
@@ -230,7 +230,7 @@ export function FilingsPanel({ symbol }: FilingsPanelProps) {
                   href={filing.edgarUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-xs font-mono font-medium text-cyan-700 border border-slate-300 transition shrink-0"
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-xs font-mono font-medium text-accent border border-slate-300 transition shrink-0"
                 >
                   <span>Read on SEC.gov</span>
                   <ExternalLink className="h-3.5 w-3.5" />

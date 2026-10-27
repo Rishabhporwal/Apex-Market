@@ -107,9 +107,9 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-4 mb-4">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-sans flex items-center gap-2">
-              <Zap className="h-5 w-5 text-cyan-600" /> Quantitative Strategy Backtester & Simulator
+              <Zap className="h-5 w-5 text-slate-500" /> Quantitative Strategy Backtester & Simulator
             </h2>
-            <p className="text-xs text-slate-500 font-mono mt-0.5">
+            <p className="text-xs text-muted font-mono mt-0.5">
               Simulate algorithmic trading models with risk management against S&P 500 benchmarks
             </p>
           </div>
@@ -117,7 +117,7 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           <button
             onClick={runSimulation}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white hover:bg-slate-700 font-medium font-mono text-xs transition disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-white hover:bg-accent-hover font-medium font-mono text-xs transition disabled:opacity-50"
           >
             {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-white" />}
             <span>Run Backtest</span>
@@ -128,21 +128,21 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 font-mono text-xs">
           {/* Ticker & Strategy */}
           <div>
-            <label className="block text-slate-500 text-[11px] uppercase mb-1">Target Stock Symbol</label>
+            <label className="block text-muted text-xs uppercase mb-1">Target Stock Symbol</label>
             <input
               type="text"
               value={symbol}
               onChange={(e) => setSymbol(e.target.value.toUpperCase())}
-              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-cyan-700 font-bold outline-none focus:border-cyan-500"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 font-bold outline-none focus:border-accent"
             />
           </div>
 
           <div>
-            <label className="block text-slate-500 text-[11px] uppercase mb-1">Algorithmic Model</label>
+            <label className="block text-muted text-xs uppercase mb-1">Algorithmic Model</label>
             <select
               value={strategy}
               onChange={(e) => setStrategy(e.target.value as any)}
-              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-400 outline-none focus:border-cyan-500"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-muted outline-none focus:border-accent"
             >
               <option value="MA_CROSSOVER">MA Crossover (Golden/Death Cross)</option>
               <option value="RSI_REVERSION">RSI Mean Reversion (30/70)</option>
@@ -152,11 +152,11 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           </div>
 
           <div>
-            <label className="block text-slate-500 text-[11px] uppercase mb-1">Historical Period</label>
+            <label className="block text-muted text-xs uppercase mb-1">Historical Period</label>
             <select
               value={timeframe}
               onChange={(e) => setTimeframe(e.target.value as any)}
-              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-400 outline-none focus:border-cyan-500"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-muted outline-none focus:border-accent"
             >
               <option value="6mo">6 Months</option>
               <option value="1y">1 Year</option>
@@ -166,11 +166,11 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           </div>
 
           <div>
-            <label className="block text-slate-500 text-[11px] uppercase mb-1">Starting Capital ($)</label>
+            <label className="block text-muted text-xs uppercase mb-1">Starting Capital ($)</label>
             <select
               value={initialCapital}
               onChange={(e) => setInitialCapital(Number(e.target.value))}
-              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-400 outline-none focus:border-cyan-500"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-muted outline-none focus:border-accent"
             >
               <option value="10000">$10,000</option>
               <option value="50000">$50,000</option>
@@ -184,21 +184,21 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           {strategy === 'MA_CROSSOVER' && (
             <>
               <div>
-                <label className="block text-slate-500 text-[11px] uppercase mb-1">Fast MA Period</label>
+                <label className="block text-muted text-xs uppercase mb-1">Fast MA Period</label>
                 <input
                   type="number"
                   value={fastPeriod}
                   onChange={(e) => setFastPeriod(Number(e.target.value))}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-400"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-muted"
                 />
               </div>
               <div>
-                <label className="block text-slate-500 text-[11px] uppercase mb-1">Slow MA Period</label>
+                <label className="block text-muted text-xs uppercase mb-1">Slow MA Period</label>
                 <input
                   type="number"
                   value={slowPeriod}
                   onChange={(e) => setSlowPeriod(Number(e.target.value))}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-400"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-muted"
                 />
               </div>
             </>
@@ -207,43 +207,43 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           {strategy === 'RSI_REVERSION' && (
             <>
               <div>
-                <label className="block text-slate-500 text-[11px] uppercase mb-1">RSI Oversold (Buy)</label>
+                <label className="block text-muted text-xs uppercase mb-1">RSI Oversold (Buy)</label>
                 <input
                   type="number"
                   value={rsiOversold}
                   onChange={(e) => setRsiOversold(Number(e.target.value))}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-400"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-muted"
                 />
               </div>
               <div>
-                <label className="block text-slate-500 text-[11px] uppercase mb-1">RSI Overbought (Sell)</label>
+                <label className="block text-muted text-xs uppercase mb-1">RSI Overbought (Sell)</label>
                 <input
                   type="number"
                   value={rsiOverbought}
                   onChange={(e) => setRsiOverbought(Number(e.target.value))}
-                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-400"
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-muted"
                 />
               </div>
             </>
           )}
 
           <div>
-            <label className="block text-slate-500 text-[11px] uppercase mb-1">Stop Loss Limit %</label>
+            <label className="block text-muted text-xs uppercase mb-1">Stop Loss Limit %</label>
             <input
               type="number"
               value={stopLossPercent}
               onChange={(e) => setStopLossPercent(Number(e.target.value))}
-              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-400"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-muted"
             />
           </div>
 
           <div>
-            <label className="block text-slate-500 text-[11px] uppercase mb-1">Take Profit Target %</label>
+            <label className="block text-muted text-xs uppercase mb-1">Take Profit Target %</label>
             <input
               type="number"
               value={takeProfitPercent}
               onChange={(e) => setTakeProfitPercent(Number(e.target.value))}
-              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-slate-400"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-muted"
             />
           </div>
         </div>
@@ -253,57 +253,57 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
       {result && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Expected Return</div>
+            <div className="text-xs font-mono uppercase text-muted">Expected Return</div>
             <div className={`text-xl font-extrabold font-mono mt-1 ${result.totalReturnPercent >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {result.totalReturnPercent >= 0 ? '+' : ''}{result.totalReturnPercent.toFixed(2)}%
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">Absolute (vs cash)</div>
+            <div className="text-xs font-mono text-muted mt-0.5">Absolute (vs cash)</div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">vs Index</div>
-            <div className={`text-xl font-extrabold font-mono mt-1 ${result.totalReturnPercent - result.benchmarkReturnPercent >= 0 ? 'text-cyan-600' : 'text-rose-600'}`}>
+            <div className="text-xs font-mono uppercase text-muted">vs Index</div>
+            <div className={`text-xl font-extrabold font-mono mt-1 ${result.totalReturnPercent - result.benchmarkReturnPercent >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
               {(result.totalReturnPercent - result.benchmarkReturnPercent) >= 0 ? '+' : ''}
               {(result.totalReturnPercent - result.benchmarkReturnPercent).toFixed(2)}%
             </div>
             {/* Secondary benchmark view, kept below the absolute expectation. */}
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+            <div className="text-xs font-mono text-muted mt-0.5">
               SPY same window: {result.benchmarkReturnPercent >= 0 ? '+' : ''}{result.benchmarkReturnPercent.toFixed(2)}%
             </div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Sharpe Ratio</div>
+            <div className="text-xs font-mono uppercase text-muted">Sharpe Ratio</div>
             <div className="text-xl font-extrabold font-mono text-slate-900 mt-1">
               {result.sharpeRatio.toFixed(2)}
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">Annualized Risk-Adj</div>
+            <div className="text-xs font-mono text-muted mt-0.5">Annualized Risk-Adj</div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Max Drawdown</div>
+            <div className="text-xs font-mono uppercase text-muted">Max Drawdown</div>
             <div className="text-xl font-extrabold font-mono text-rose-600 mt-1">
               -{result.maxDrawdownPercent.toFixed(2)}%
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">Peak-to-Trough</div>
+            <div className="text-xs font-mono text-muted mt-0.5">Peak-to-Trough</div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Win Rate</div>
+            <div className="text-xs font-mono uppercase text-muted">Win Rate</div>
             <div className="text-xl font-extrabold font-mono text-emerald-600 mt-1">
               {result.winRatePercent.toFixed(1)}%
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+            <div className="text-xs font-mono text-muted mt-0.5">
               {result.winningTrades}W / {result.losingTrades}L ({result.totalTrades} trades)
             </div>
           </div>
 
           <div className="glass-panel rounded-xl p-4 border border-slate-200">
-            <div className="text-[10px] font-mono uppercase text-slate-500">Profit Factor</div>
-            <div className="text-xl font-extrabold font-mono text-cyan-700 mt-1">
+            <div className="text-xs font-mono uppercase text-muted">Profit Factor</div>
+            <div className="text-xl font-extrabold font-mono text-slate-900 mt-1 tabular-nums">
               {result.profitFactor.toFixed(2)}
             </div>
-            <div className="text-[10px] font-mono text-slate-500 mt-0.5">Gross Win / Loss</div>
+            <div className="text-xs font-mono text-muted mt-0.5">Gross Win / Loss</div>
           </div>
         </div>
       )}
@@ -314,14 +314,14 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-3 mb-4">
             <div>
               <h3 className="text-base font-bold text-slate-900 font-sans">Simulated Equity Curve vs Benchmark</h3>
-              <p className="text-xs text-slate-500 font-mono mt-0.5">Strategy portfolio valuation tracking against SPY equity index</p>
+              <p className="text-xs text-muted font-mono mt-0.5">Strategy portfolio valuation tracking against SPY equity index</p>
             </div>
 
             <div className="flex items-center gap-4 text-xs font-mono">
               <span className="flex items-center gap-1.5 text-cyan-600">
                 <span className="inline-block h-3 w-3 rounded-full bg-cyan-400" /> Model Portfolio
               </span>
-              <span className="flex items-center gap-1.5 text-slate-500">
+              <span className="flex items-center gap-1.5 text-muted">
                 <span className="inline-block h-3 w-3 rounded-full bg-slate-500" /> S&P 500 (SPY)
               </span>
             </div>
@@ -371,7 +371,7 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
           <div className="overflow-x-auto">
             <table className="w-full text-left font-mono text-xs">
               <thead>
-                <tr className="border-b border-slate-200 text-slate-500">
+                <tr className="border-b border-slate-200 text-muted">
                   <th className="pb-3 font-semibold">Trade #</th>
                   <th className="pb-3 font-semibold">Action</th>
                   <th className="pb-3 font-semibold">Date</th>
@@ -386,23 +386,23 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
               <tbody className="divide-y divide-slate-200">
                 {result.trades.map((tr) => (
                   <tr key={tr.id} className="hover:bg-slate-50 transition">
-                    <td className="py-2.5 text-slate-500">{tr.id}</td>
+                    <td className="py-2.5 text-muted">{tr.id}</td>
                     <td className="py-2.5 font-bold">
-                      <span className={`px-2 py-0.5 rounded text-[10px] ${tr.type === 'BUY' ? 'bg-cyan-50 text-cyan-700' : 'bg-amber-50 text-amber-600'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs ${tr.type === 'BUY' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
                         {tr.type}
                       </span>
                     </td>
-                    <td className="py-2.5 text-slate-400">{tr.date}</td>
+                    <td className="py-2.5 text-muted">{tr.date}</td>
                     <td className="py-2.5 text-slate-900">${tr.price.toFixed(2)}</td>
-                    <td className="py-2.5 text-slate-400">{tr.shares}</td>
-                    <td className="py-2.5 text-slate-400">${tr.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td className="py-2.5 text-muted">{tr.shares}</td>
+                    <td className="py-2.5 text-muted">${tr.amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
                     <td className="py-2.5">
                       {tr.returnPercent !== undefined ? (
                         <span className={`font-bold ${tr.returnPercent >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                           {tr.returnPercent >= 0 ? '+' : ''}{tr.returnPercent}%
                         </span>
                       ) : (
-                        <span className="text-slate-500">—</span>
+                        <span className="text-muted">—</span>
                       )}
                     </td>
                     <td className="py-2.5">
@@ -411,10 +411,10 @@ export function BacktestView({ selectedSymbol }: BacktestViewProps) {
                           {tr.pnl >= 0 ? '+' : ''}${tr.pnl.toLocaleString()}
                         </span>
                       ) : (
-                        <span className="text-slate-500">—</span>
+                        <span className="text-muted">—</span>
                       )}
                     </td>
-                    <td className="py-2.5 text-slate-500 text-[11px]">{tr.exitReason || 'ENTRY'}</td>
+                    <td className="py-2.5 text-muted text-xs">{tr.exitReason || 'ENTRY'}</td>
                   </tr>
                 ))}
               </tbody>

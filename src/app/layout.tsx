@@ -1,5 +1,12 @@
 import type { Metadata } from 'next';
+import { DM_Sans } from 'next/font/google';
 import './globals.css';
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Tradexa AI | Institutional-Grade Stock Market Intelligence',
@@ -12,8 +19,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#070b12] text-slate-100 antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+    <html lang="en" className={dmSans.variable}>
+      <body className="min-h-screen bg-[#f7f7f8] text-[#0a0b0d] antialiased selection:bg-blue-100 selection:text-blue-900">
         {children}
       </body>
     </html>

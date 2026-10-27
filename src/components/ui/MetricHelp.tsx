@@ -36,8 +36,8 @@ export function MetricHelp({
   if (!text) return null;
   return (
     <span className={`relative inline-flex group/help align-middle ${className}`} title={text}>
-      <HelpCircle className="h-3.5 w-3.5 text-slate-500 hover:text-cyan-600 cursor-help transition" />
-      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/help:block z-50 w-60 rounded-lg bg-slate-50 border border-slate-300 p-2.5 text-[11px] leading-relaxed text-slate-400 font-sans shadow-md">
+      <HelpCircle className="h-3.5 w-3.5 text-muted hover:text-accent cursor-help transition" />
+      <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 hidden group-hover/help:block z-50 w-60 rounded-lg bg-slate-50 border border-slate-300 p-2.5 text-xs leading-relaxed text-muted font-sans shadow-md">
         {text}
       </span>
     </span>

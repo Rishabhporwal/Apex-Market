@@ -69,7 +69,7 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 font-sans">
       <div className="relative w-full max-w-3xl rounded-2xl border border-slate-300 bg-white shadow-2xl p-6 overflow-hidden max-h-[90vh] flex flex-col">
         {/* Glow */}
-        <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-cyan-50 blur-3xl pointer-events-none" />
+        <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-slate-100 blur-3xl pointer-events-none" />
 
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-slate-200 pb-4 mb-4">
@@ -80,17 +80,17 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-bold text-slate-900">AI Financial Analyst & Model Configuration</h3>
-                <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[10px] font-mono font-semibold text-cyan-600 border border-cyan-200">
+                <span className="rounded-full bg-surface px-2 py-0.5 text-xs font-mono font-semibold text-muted border border-line">
                   {symbol}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 font-mono">Connect LLMs (Gemini, GPT-4o, Claude) or use native quantitative engine</p>
+              <p className="text-xs text-muted font-mono">Connect LLMs (Gemini, GPT-4o, Claude) or use native quantitative engine</p>
             </div>
           </div>
 
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition"
+            className="rounded-lg p-1.5 text-muted hover:bg-slate-50 hover:text-slate-900 transition"
           >
             <X className="h-5 w-5" />
           </button>
@@ -99,8 +99,8 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
         <div className="flex-1 overflow-y-auto space-y-5 pr-1">
           {/* Provider Selection */}
           <div className="space-y-2">
-            <label className="text-xs font-mono font-semibold uppercase text-slate-500 flex items-center gap-1.5">
-              <Cpu className="h-3.5 w-3.5 text-cyan-600" /> Select Intelligence Model
+            <label className="text-xs font-mono font-semibold uppercase text-muted flex items-center gap-1.5">
+              <Cpu className="h-3.5 w-3.5 text-slate-500" /> Select Intelligence Model
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-xs">
               {[
@@ -114,12 +114,12 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
                   onClick={() => setProvider(m.id as any)}
                   className={`p-2.5 rounded-xl text-left border transition ${
                     provider === m.id
-                      ? 'bg-cyan-50 border-cyan-200 text-cyan-700 shadow-sm'
-                      : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                      ? 'bg-blue-50 border-blue-200 text-accent shadow-sm'
+                      : 'bg-white border-slate-200 text-muted hover:bg-slate-50'
                   }`}
                 >
                   <div className="font-bold text-slate-900 text-xs">{m.label}</div>
-                  <div className="text-[10px] text-slate-500 mt-0.5">{m.desc}</div>
+                  <div className="text-xs text-muted mt-0.5">{m.desc}</div>
                 </button>
               ))}
             </div>
@@ -128,10 +128,10 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
           {/* API Key Input */}
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 font-mono text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-slate-500 flex items-center gap-1.5 text-[11px] uppercase">
+              <span className="text-muted flex items-center gap-1.5 text-xs uppercase">
                 <Key className="h-3.5 w-3.5 text-amber-600" /> Optional Custom LLM API Key (Stored Locally)
               </span>
-              <span className="text-[10px] text-emerald-600">Works without key via local engine</span>
+              <span className="text-xs text-emerald-600">Works without key via local engine</span>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -139,11 +139,11 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
                 placeholder="Paste Gemini API Key, OpenAI API Key (or leave blank to use free native AI)..."
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 outline-none focus:border-cyan-500"
+                className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-slate-900 outline-none focus:border-accent"
               />
               <button
                 onClick={handleSaveKey}
-                className="px-3.5 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-400 transition font-bold"
+                className="px-3.5 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-muted transition font-bold"
               >
                 {savedKey ? 'Saved!' : 'Save'}
               </button>
@@ -152,7 +152,7 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
 
           {/* Quick Deep-Dive Prompt Chips */}
           <div className="space-y-1.5">
-            <span className="text-[11px] font-mono text-slate-500 uppercase">Quick Institutional Deep-Dives:</span>
+            <span className="text-xs font-mono text-muted uppercase">Quick Institutional Deep-Dives:</span>
             <div className="flex flex-wrap gap-1.5 font-mono text-xs">
               {[
                 `Generate full institutional equity research thesis for ${symbol}`,
@@ -166,7 +166,7 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
                     setQuery(chip);
                     handleRunAiResearch(chip);
                   }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-cyan-50 hover:text-cyan-700 text-slate-400 border border-slate-300 text-[11px] transition text-left"
+                  className="px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-blue-50 hover:text-accent text-muted border border-slate-300 text-xs transition text-left"
                 >
                   ⚡ {chip}
                 </button>
@@ -183,7 +183,7 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleRunAiResearch()}
-                className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 outline-none focus:border-cyan-500 font-mono"
+                className="flex-1 bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-900 outline-none focus:border-accent font-mono"
               />
               <button
                 onClick={() => handleRunAiResearch()}
@@ -198,28 +198,28 @@ export function AiCopilotModal({ isOpen, onClose, symbol }: AiCopilotModalProps)
 
           {/* AI Output Response View */}
           {response && (
-            <div className="p-4 rounded-xl bg-white border border-cyan-200 space-y-3 font-sans">
+            <div className="p-4 rounded-xl bg-white border border-line space-y-3 font-sans">
               <div className="flex items-center justify-between border-b border-slate-200 pb-2 font-mono text-xs">
-                <span className="flex items-center gap-1.5 text-cyan-600 font-bold">
+                <span className="flex items-center gap-1.5 text-slate-900 font-bold">
                   <Sparkles className="h-4 w-4" /> Powered by {response.providerUsed} ({response.model})
                 </span>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                  response.analystToneAssessment === 'BULLISH' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'
+                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                  response.analystToneAssessment === 'BULLISH' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-muted'
                 }`}>
                   Tone: {response.analystToneAssessment}
                 </span>
               </div>
 
-              <div className="text-xs text-slate-400 leading-relaxed whitespace-pre-line">
+              <div className="text-xs text-muted leading-relaxed whitespace-pre-line">
                 {response.deepAnalysis}
               </div>
 
               {response.growthDrivers?.length > 0 && (
                 <div className="pt-2 border-t border-slate-200">
-                  <div className="text-[11px] font-mono font-bold text-emerald-600 uppercase mb-1">
+                  <div className="text-xs font-mono font-bold text-emerald-600 uppercase mb-1">
                     Key Growth Catalysts
                   </div>
-                  <ul className="space-y-1 text-xs text-slate-400">
+                  <ul className="space-y-1 text-xs text-muted">
                     {response.growthDrivers.map((d: string, i: number) => (
                       <li key={i} className="flex items-start gap-1.5">
                         <span className="text-emerald-600 font-bold">•</span>

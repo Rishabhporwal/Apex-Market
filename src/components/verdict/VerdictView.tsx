@@ -110,7 +110,7 @@ function newsFreshnessClass(publishedAt?: string | number | null): string | null
 const ACTION_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode; label: string }> = {
   BUY: { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-600', icon: <TrendingUp className="h-8 w-8" />, label: 'Buy' },
   HOLD: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-600', icon: <Minus className="h-8 w-8" />, label: 'Hold' },
-  NEUTRAL: { bg: 'bg-slate-50 border-slate-200', text: 'text-slate-400', icon: <Minus className="h-8 w-8" />, label: 'Neutral' },
+  NEUTRAL: { bg: 'bg-slate-50 border-slate-200', text: 'text-muted', icon: <Minus className="h-8 w-8" />, label: 'Neutral' },
   SELL: { bg: 'bg-rose-50 border-rose-200', text: 'text-rose-600', icon: <TrendingDown className="h-8 w-8" />, label: 'Sell' },
 };
 
@@ -168,11 +168,11 @@ function LevelLadder({ v }: { v: AiVerdict }) {
 function Marker({ label, left, color, sub, icon, center }: { label: string; left: string; color: string; sub?: string; icon?: React.ReactNode; center?: boolean }) {
   return (
     <div className="absolute top-0 -translate-x-1/2 flex flex-col items-center" style={{ left }}>
-      <span className={`text-[10px] font-semibold ${color} flex items-center gap-0.5 whitespace-nowrap`}>
+      <span className={`text-xs font-semibold ${color} flex items-center gap-0.5 whitespace-nowrap`}>
         {icon} {label}
       </span>
       <span className={`h-3 w-px ${center ? 'bg-white' : 'bg-slate-500'}`} />
-      {sub && <span className="text-[9px] text-slate-500 whitespace-nowrap">{sub}</span>}
+      {sub && <span className="text-xs text-muted whitespace-nowrap">{sub}</span>}
     </div>
   );
 }
@@ -181,7 +181,7 @@ function Tick({ left, color, label, tip }: { left: string; color: string; label:
   return (
     <div className="absolute top-6 -translate-x-1/2 group/t" style={{ left }}>
       <span className={`block h-3 w-1.5 rounded-sm ${color}`} title={label} />
-      <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover/t:block text-[9px] text-slate-500 whitespace-nowrap">
+      <span className="pointer-events-none absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover/t:block text-xs text-muted whitespace-nowrap">
         {tip}
       </span>
     </div>
@@ -199,35 +199,35 @@ function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdic
     { key: 'fundamentals', label: 'Fundamental quality', points: breakdown.fundamentals.points, detail: breakdown.fundamentals.detail },
     ...(breakdown.momentum ? [{ key: 'momentum', label: 'Momentum (12-1)', points: breakdown.momentum.points, detail: breakdown.momentum.detail }] : []),
   ];
-  const ptsClass = (p: number) => (p > 0 ? 'text-emerald-600' : p < 0 ? 'text-rose-600' : 'text-slate-500');
+  const ptsClass = (p: number) => (p > 0 ? 'text-emerald-600' : p < 0 ? 'text-rose-600' : 'text-muted');
   return (
     <div className="glass-panel rounded-2xl p-6">
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-left group">
         <h3 className="font-bold text-slate-900 flex items-center gap-2">
-          <BrainCircuit className="h-4 w-4 text-cyan-600" /> Why this verdict?
-          <span className="text-[10px] font-normal text-slate-500 hidden sm:inline">— the receipts behind every point</span>
+          <BrainCircuit className="h-4 w-4 text-slate-500" /> Why this verdict?
+          <span className="text-xs font-normal text-muted hidden sm:inline">— the receipts behind every point</span>
         </h3>
         <span className="flex items-center gap-2">
           <span className={`text-xs font-semibold ${ptsClass(total)}`}>{total > 0 ? '+' : ''}{total} score</span>
-          {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500 group-hover:text-cyan-700" />}
+          {open ? <ChevronUp className="h-4 w-4 text-muted" /> : <ChevronDown className="h-4 w-4 text-muted group-hover:text-accent" />}
         </span>
       </button>
       {open && (
         <div className="mt-4 space-y-3">
           {rows.map((r) => (
             <div key={r.key} className="flex items-start gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3">
-              <span className={`shrink-0 min-w-[52px] text-center text-xs font-bold rounded-lg px-2 py-1 ${r.points > 0 ? 'bg-emerald-50 text-emerald-600' : r.points < 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
+              <span className={`shrink-0 min-w-[52px] text-center text-xs font-bold rounded-lg px-2 py-1 ${r.points > 0 ? 'bg-emerald-50 text-emerald-600' : r.points < 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-muted'}`}>
                 {r.points > 0 ? '+' : ''}{r.points}
               </span>
               <div className="min-w-0">
-                <div className="text-xs font-semibold text-slate-400">{r.label}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{r.detail}</div>
+                <div className="text-xs font-semibold text-muted">{r.label}</div>
+                <div className="text-xs text-muted mt-0.5">{r.detail}</div>
                 {r.key === 'fundamentals' && breakdown.fundamentals.factors.length > 0 && (
                   <div className="mt-2 space-y-1">
                     {breakdown.fundamentals.factors.map((f) => (
-                      <div key={f.name} className="flex items-center gap-2 text-[11px] text-slate-500">
-                        <span className="text-slate-500">{f.name}</span>
-                        <span className="text-slate-500">{f.value}</span>
+                      <div key={f.name} className="flex items-center gap-2 text-xs text-muted">
+                        <span className="text-muted">{f.name}</span>
+                        <span className="text-muted">{f.value}</span>
                         <span className={ptsClass(f.points)}>{f.points > 0 ? '+' : ''}{f.points}</span>
                       </div>
                     ))}
@@ -243,7 +243,7 @@ function ScoreBreakdown({ breakdown, action }: { breakdown: NonNullable<AiVerdic
               {breakdown.bearishVotes.reasons.length > 0 && <div className="mt-1 text-rose-600/80">{breakdown.bearishVotes.reasons.join(' · ')}</div>}
             </div>
           )}
-          <div className="text-[11px] text-slate-500">
+          <div className="text-xs text-muted">
             Deterministic scoring — same math the backtester runs. Trend ±25 · RSI ±15 · sentiment ±25 · fundamentals ±35 (cross-sectional percentile composite when sector data is available) · momentum ±10. The total score is the components' sum, rounded.
             {action === 'SELL' ? '' : ' The AI narrative can only nudge the action when the score sits within 15 points of a boundary.'}
           </div>
@@ -382,9 +382,9 @@ export function VerdictView({ symbol }: { symbol: string }) {
   if (loading) {
     return (
       <div className="glass-panel rounded-2xl p-10 text-center">
-        <BrainCircuit className="h-10 w-10 mx-auto text-cyan-600 animate-pulse mb-4" />
+        <BrainCircuit className="h-10 w-10 mx-auto text-accent animate-pulse mb-4" />
         <div className="text-slate-900 font-semibold">AI is researching {symbol}…</div>
-        <div className="text-xs text-slate-500 mt-1">Reading SEC filings, charts and news, then forming a verdict</div>
+        <div className="text-xs text-muted mt-1">Reading SEC filings, charts and news, then forming a verdict</div>
       </div>
     );
   }
@@ -394,7 +394,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
       <div className="glass-panel rounded-2xl p-10 text-center">
         <AlertTriangle className="h-8 w-8 mx-auto text-amber-600 mb-3" />
         <div className="text-slate-900">{error ?? 'No verdict available'}</div>
-        <button onClick={load} className="mt-4 px-4 py-2 rounded-lg bg-cyan-50 text-cyan-700 text-sm hover:bg-cyan-50">
+        <button onClick={load} className="mt-4 px-4 py-2 rounded-lg bg-accent text-white text-sm hover:bg-accent-hover">
           Try again
         </button>
       </div>
@@ -422,12 +422,12 @@ export function VerdictView({ symbol }: { symbol: string }) {
       <div className="glass-panel rounded-2xl p-6">
         <div className="flex flex-col lg:flex-row lg:items-center gap-6">
           <div className="flex-1">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2 text-xs text-muted">
               <button
                 onClick={togglePin}
                 disabled={pinBusy}
                 title={pinned ? `Unpin the ${v.symbol} analysis` : `Pin this analysis — you're holding ${v.symbol} and want thesis-break alerts`}
-                className={`shrink-0 transition ${pinned ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-600'} disabled:opacity-50`}
+                className={`shrink-0 transition ${pinned ? 'text-indigo-600' : 'text-muted hover:text-indigo-600'} disabled:opacity-50`}
               >
                 <Pin className={`h-5 w-5 ${pinned ? 'fill-indigo-400' : ''}`} />
               </button>
@@ -435,24 +435,24 @@ export function VerdictView({ symbol }: { symbol: string }) {
                 onClick={toggleWatch}
                 disabled={watchBusy}
                 title={watched ? `Remove ${v.symbol} from watchlist` : `Track ${v.symbol} — get alerted when the verdict changes`}
-                className={`shrink-0 transition ${watched ? 'text-amber-600' : 'text-slate-400 hover:text-amber-600'} disabled:opacity-50`}
+                className={`shrink-0 transition ${watched ? 'text-amber-600' : 'text-muted hover:text-amber-600'} disabled:opacity-50`}
               >
                 <Star className={`h-5 w-5 ${watched ? 'fill-amber-400' : ''}`} />
               </button>
-              <span className="font-bold text-cyan-700 text-sm">{v.symbol}</span>
+              <span className="font-bold text-accent text-sm">{v.symbol}</span>
               <span>·</span>
               <span>{v.name}</span>
-              {watched && <span className="text-[10px] text-amber-600/80">tracked · alerts on</span>}
-              {pinned && <span className="text-[10px] text-indigo-600/90">📌 holding · thesis-break alerts on</span>}
+              {watched && <span className="text-xs text-amber-600/80">tracked · alerts on</span>}
+              {pinned && <span className="text-xs text-indigo-600/90">📌 holding · thesis-break alerts on</span>}
             </div>
             <div className="flex items-baseline gap-3 mt-1">
               <span className="text-4xl font-bold text-slate-900">${v.price.toFixed(2)}</span>
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-muted">
                 · {v.technicals.trend === 'up' ? 'trending up' : v.technicals.trend === 'down' ? 'trending down' : 'moving sideways'}
                 <MetricHelp term="rsi14" />
               </span>
             </div>
-            <p className="mt-3 text-sm text-slate-400 max-w-xl leading-relaxed">{v.verdict.summary}</p>
+            <p className="mt-3 text-sm text-muted max-w-xl leading-relaxed">{v.verdict.summary}</p>
           </div>
 
           {/* Verdict badge + confidence */}
@@ -460,18 +460,18 @@ export function VerdictView({ symbol }: { symbol: string }) {
             <div className={`flex items-center justify-center gap-2 ${style.text}`}>{style.icon}</div>
             <div className={`text-3xl font-bold mt-1 ${style.text}`}>{style.label}</div>
             <div className="mt-3">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">AI confidence</div>
+              <div className="text-xs uppercase tracking-wider text-muted">AI confidence</div>
               <div className="text-xl font-bold text-slate-900">{Math.round(v.verdict.confidence)}%</div>
               <div className="h-1.5 rounded-full bg-slate-50 mt-1.5 overflow-hidden">
                 <div className="h-full bg-cyan-400 rounded-full" style={{ width: `${v.verdict.confidence}%` }} />
               </div>
             </div>
-            <div className="mt-2 text-[11px] text-slate-500 capitalize">Horizon: {v.verdict.horizon}-term</div>
+            <div className="mt-2 text-xs text-muted capitalize">Horizon: {v.verdict.horizon}-term</div>
             {v.tradeWindow && (
-              <div className="mt-1.5 text-[11px] text-slate-500" title={`This analysis is meant to be acted on within ${v.tradeWindow.holdingDays} trading days. After that, re-analyze before acting on it.`}>
-                <CalendarClock className="h-3 w-3 inline mr-1 text-slate-500" />
-                Valid until <span className="text-slate-400 font-semibold">{new Date(v.tradeWindow.validUntil + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                <span className="text-slate-400"> · {v.tradeWindow.note}</span>
+              <div className="mt-1.5 text-xs text-muted" title={`This analysis is meant to be acted on within ${v.tradeWindow.holdingDays} trading days. After that, re-analyze before acting on it.`}>
+                <CalendarClock className="h-3 w-3 inline mr-1 text-muted" />
+                Valid until <span className="text-muted font-semibold">{new Date(v.tradeWindow.validUntil + 'T12:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span className="text-muted"> · {v.tradeWindow.note}</span>
               </div>
             )}
             {v.ensemble && v.ensemble.consensus && (
@@ -479,7 +479,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
                 className="mt-3 pt-3 border-t border-slate-300"
                 title={v.ensemble.votes.map((vt) => `${vt.model.split('/')[0]}: ${vt.verdict ?? 'error'}`).join(' · ')}
               >
-                <div className="text-[10px] uppercase tracking-wider text-slate-500">Model ensemble</div>
+                <div className="text-xs uppercase tracking-wider text-muted">Model ensemble</div>
                 <div className={`text-xs font-semibold ${v.ensemble.agreeing === v.ensemble.of ? 'text-emerald-600' : 'text-amber-600'}`}>
                   {v.ensemble.agreeing}/{v.ensemble.of} models say {v.ensemble.consensus}
                 </div>
@@ -511,15 +511,15 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {/* Strategy */}
       <div className="glass-panel rounded-2xl p-6">
         <h3 className="font-bold text-slate-900 flex items-center gap-2">
-          <Target className="h-4 w-4 text-cyan-600" /> Suggested strategy
+          <Target className="h-4 w-4 text-slate-500" /> Suggested strategy
         </h3>
-        <p className="text-sm text-slate-400 mt-2">{v.strategy.headline}</p>
+        <p className="text-sm text-muted mt-2">{v.strategy.headline}</p>
         {v.strategy.entry && (
-          <div className="mt-3 text-sm"><span className="text-slate-500">Entry zone:</span> <span className="text-slate-900">{v.strategy.entry}</span></div>
+          <div className="mt-3 text-sm"><span className="text-muted">Entry zone:</span> <span className="text-slate-900">{v.strategy.entry}</span></div>
         )}
         <ul className="mt-3 space-y-2">
           {v.strategy.plan.map((p, i) => (
-            <li key={i} className="flex gap-2 text-sm text-slate-400">
+            <li key={i} className="flex gap-2 text-sm text-muted">
               <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" /> {p}
             </li>
           ))}
@@ -537,7 +537,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
           </h3>
           <ul className="space-y-2">
             {(v.drivers.bullish.length ? v.drivers.bullish : ['No strong positives detected from current data.']).map((b, i) => (
-              <li key={i} className="text-sm text-slate-400 flex gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />{b}</li>
+              <li key={i} className="text-sm text-muted flex gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />{b}</li>
             ))}
           </ul>
           {v.fundamentals && (
@@ -546,13 +546,13 @@ export function VerdictView({ symbol }: { symbol: string }) {
               <FundStat label="Profit margin" help="netMargin" value={v.fundamentals.netMargin != null ? `${v.fundamentals.netMargin.toFixed(1)}%` : '—'} />
               <FundStat label="Efficiency (ROE)" help="roe" value={v.fundamentals.roe != null ? `${v.fundamentals.roe.toFixed(1)}%` : '—'} />
               <FundStat label="P/E" help="peRatio" value={v.fundamentals.peRatio?.toFixed(1) ?? '—'} />
-              <div className="col-span-2 text-[10px] text-slate-500">
+              <div className="col-span-2 text-xs text-muted">
                 Source: {v.fundamentals.source} ·{' '}
                 <a
                   href={`https://www.sec.gov/edgar/browse/?CIK=${encodeURIComponent(v.symbol)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-cyan-600 hover:text-cyan-700 underline"
+                  className="text-accent hover:text-accent-hover underline"
                 >
                   open the filings on SEC EDGAR ↗
                 </a>
@@ -568,7 +568,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
           </h3>
           <ul className="space-y-2">
             {(v.drivers.bearish.length ? v.drivers.bearish : ['No strong negatives detected from current data.']).map((b, i) => (
-              <li key={i} className="text-sm text-slate-400 flex gap-2"><AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />{b}</li>
+              <li key={i} className="text-sm text-muted flex gap-2"><AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />{b}</li>
             ))}
           </ul>
           <Receipts sentiment="bearish" news={v.drivers.newsItems} technicals={v.technicals} levels={v.levels} />
@@ -579,10 +579,10 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {v.drivers.newsItems?.length > 0 && (
         <div className="glass-panel rounded-2xl p-6">
           <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-1">
-            <Newspaper className="h-4 w-4 text-cyan-600" /> News the AI weighed
+            <Newspaper className="h-4 w-4 text-slate-500" /> News the AI weighed
             <MetricHelp term="sentimentScore" />
           </h3>
-          <p className="text-[11px] text-slate-500 mb-2">Older news contributes less to the sentiment score.</p>
+          <p className="text-xs text-muted mb-2">Older news contributes less to the sentiment score.</p>
           <div className="space-y-2">
             {v.drivers.newsItems.map((n, i) => {
               const ageLabel = newsAgeLabel(n.publishedAt);
@@ -591,32 +591,32 @@ export function VerdictView({ symbol }: { symbol: string }) {
               return (
                 <div key={i} className={`flex items-start gap-3 text-sm py-1.5 border-b border-slate-200 last:border-0 ${faded ?? ''}`}>
                   <span
-                    className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                    className={`shrink-0 mt-0.5 px-1.5 py-0.5 rounded text-xs font-semibold uppercase ${
                       n.sentiment === 'bullish'
                         ? 'bg-emerald-50 text-emerald-600'
                         : n.sentiment === 'bearish'
                           ? 'bg-rose-50 text-rose-600'
-                          : 'bg-slate-50 text-slate-500'
+                          : 'bg-slate-50 text-muted'
                     }`}
                   >
                     {n.sentiment}
                   </span>
                   <div className="min-w-0">
                     {n.url ? (
-                      <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-cyan-700 line-clamp-2">
+                      <a href={n.url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent line-clamp-2">
                         {n.title}
                       </a>
                     ) : (
-                      <span className="text-slate-400 line-clamp-2">{n.title}</span>
+                      <span className="text-muted line-clamp-2">{n.title}</span>
                     )}
-                    <span className="text-[10px] text-slate-500 ml-2">{n.source}</span>
+                    <span className="text-xs text-muted ml-2">{n.source}</span>
                     {ageLabel && (
-                      <span className="text-[10px] text-slate-500 ml-2 whitespace-nowrap">
+                      <span className="text-xs text-muted ml-2 whitespace-nowrap">
                         {ageLabel}
                         {dateLabel ? ` · ${dateLabel}` : ''}
                       </span>
                     )}
-                    {faded && <span className="text-[10px] italic text-slate-500 ml-2 whitespace-nowrap">low relevance</span>}
+                    {faded && <span className="text-xs italic text-muted ml-2 whitespace-nowrap">low relevance</span>}
                   </div>
                 </div>
               );
@@ -632,9 +632,9 @@ export function VerdictView({ symbol }: { symbol: string }) {
       {v.aiNarrative && (
         <div className="glass-panel rounded-2xl p-6">
           <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-3">
-            <BrainCircuit className="h-4 w-4 text-cyan-600" /> AI deep analysis
+            <BrainCircuit className="h-4 w-4 text-slate-500" /> AI deep analysis
           </h3>
-          <div className="text-sm text-slate-400 leading-relaxed space-y-2">
+          <div className="text-sm text-muted leading-relaxed space-y-2">
             {v.aiNarrative.split('\n').map((line, i) => {
               const t = line.trim();
               if (!t) return <div key={i} className="h-1" />;
@@ -664,7 +664,7 @@ export function VerdictView({ symbol }: { symbol: string }) {
       )}
 
       {/* Disclaimer */}
-      <div className="text-[11px] text-slate-500 leading-relaxed px-1">
+      <div className="text-xs text-muted leading-relaxed px-1">
         <ShieldAlert className="h-3 w-3 inline mr-1 -mt-0.5" />
         {v.disclaimer}
       </div>
@@ -706,9 +706,9 @@ function ScoreEvolution({ symbol, currentAction, currentConfidence }: { symbol: 
   return (
     <div className="glass-panel rounded-2xl p-6">
       <h3 className="font-bold text-slate-900 flex items-center gap-2 mb-1">
-        <TrendingUp className="h-4 w-4 text-cyan-600" /> Score evolution
+        <TrendingUp className="h-4 w-4 text-slate-500" /> Score evolution
       </h3>
-      <p className="text-xs text-slate-500 mb-3">
+      <p className="text-xs text-muted mb-3">
         How the AI has rated {symbol} over its last {pts.length} checks · {changed} rating change{changed === 1 ? '' : 's'} recorded
       </p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[90px]">
@@ -727,7 +727,7 @@ function ScoreEvolution({ symbol, currentAction, currentConfidence }: { symbol: 
           </circle>
         ))}
       </svg>
-      <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1">
+      <div className="flex items-center justify-between text-xs text-muted mt-1">
         <span>{new Date(first.checkedAt).toLocaleDateString()}: {first.action}</span>
         <span>Now: <strong style={{ color: actionColor(last.action) }}>{last.action} {last.confidence}%</strong></span>
       </div>
@@ -751,7 +751,7 @@ function Receipts({ sentiment, news, technicals, levels }: {
     <div className="mt-4 pt-4 border-t border-slate-200">
       <button
         onClick={() => setOpen(!open)}
-        className="text-xs text-cyan-600 hover:text-cyan-700 flex items-center gap-1.5"
+        className="text-xs text-accent hover:text-accent-hover flex items-center gap-1.5"
       >
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
         {open ? 'Hide the receipts' : `Show the receipts (${relevant.length} headline${relevant.length === 1 ? '' : 's'} + indicator math)`}
@@ -761,7 +761,7 @@ function Receipts({ sentiment, news, technicals, levels }: {
           {/* News evidence */}
           {relevant.length > 0 && (
             <div>
-              <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">
+              <div className="text-muted uppercase tracking-wider text-xs mb-1.5">
                 {sentiment === 'bullish' ? 'Positive headlines, strongest first' : 'Negative headlines, most concerning first'}
               </div>
               <div className="space-y-1.5">
@@ -771,13 +771,13 @@ function Receipts({ sentiment, news, technicals, levels }: {
                       {n.score > 0 ? '+' : ''}{n.score.toFixed(1)}
                     </span>
                     {n.url ? (
-                      <a href={n.url} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-cyan-700 line-clamp-1">
+                      <a href={n.url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent line-clamp-1">
                         {n.title}
                       </a>
                     ) : (
-                      <span className="text-slate-400 line-clamp-1">{n.title}</span>
+                      <span className="text-muted line-clamp-1">{n.title}</span>
                     )}
-                    <span className="shrink-0 text-slate-400">{n.source}</span>
+                    <span className="shrink-0 text-muted">{n.source}</span>
                   </div>
                 ))}
               </div>
@@ -785,9 +785,9 @@ function Receipts({ sentiment, news, technicals, levels }: {
           )}
           {/* Indicator math */}
           <div>
-            <div className="text-slate-500 uppercase tracking-wider text-[10px] mb-1.5">Indicator math behind this panel</div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-slate-400">
-              <span className="text-slate-500">Trend</span>
+            <div className="text-muted uppercase tracking-wider text-xs mb-1.5">Indicator math behind this panel</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted">
+              <span className="text-muted">Trend</span>
               <span>
                 {technicals.trend === 'up'
                   ? 'price above SMA50 and SMA50 above SMA200'
@@ -795,14 +795,14 @@ function Receipts({ sentiment, news, technicals, levels }: {
                     ? 'price below SMA50 and SMA50 below SMA200'
                     : 'price between its key averages (no clean trend)'}
               </span>
-              <span className="text-slate-500">RSI(14)</span>
+              <span className="text-muted">RSI(14)</span>
               <span>{technicals.rsi14 != null ? technicals.rsi14.toFixed(1) : '—'} — {technicals.rsi14 == null ? 'no data' : technicals.rsi14 > 70 ? 'overbought zone (>70)' : technicals.rsi14 > 55 ? 'elevated (55–70)' : technicals.rsi14 < 30 ? 'oversold zone (<30)' : technicals.rsi14 < 45 ? 'soft (30–45)' : 'neutral (45–55)'}</span>
-              {levels.sma50 != null && (<><span className="text-slate-500">SMA 50</span><span>${levels.sma50.toFixed(2)}</span></>)}
-              {levels.sma200 != null && (<><span className="text-slate-500">SMA 200</span><span>${levels.sma200.toFixed(2)}</span></>)}
-              {levels.sma20 != null && (<><span className="text-slate-500">SMA 20</span><span>${levels.sma20.toFixed(2)}</span></>)}
-              {levels.atr14 != null && (<><span className="text-slate-500">ATR(14)</span><span>${levels.atr14.toFixed(2)} — typical daily range</span></>)}
+              {levels.sma50 != null && (<><span className="text-muted">SMA 50</span><span>${levels.sma50.toFixed(2)}</span></>)}
+              {levels.sma200 != null && (<><span className="text-muted">SMA 200</span><span>${levels.sma200.toFixed(2)}</span></>)}
+              {levels.sma20 != null && (<><span className="text-muted">SMA 20</span><span>${levels.sma20.toFixed(2)}</span></>)}
+              {levels.atr14 != null && (<><span className="text-muted">ATR(14)</span><span>${levels.atr14.toFixed(2)} — typical daily range</span></>)}
             </div>
-            <div className="mt-2 text-[10px] text-slate-400">
+            <div className="mt-2 text-xs text-muted">
               Scoring: trend contributes ±25, RSI position ±15, news sentiment ±25, fundamentals ±35 → final score −100..100.
               BUY needs ≥35; SELL needs a low score <em>plus</em> two independent bearish confirmations.
             </div>
@@ -816,13 +816,13 @@ function Receipts({ sentiment, news, technicals, levels }: {
 function LevelCard({ label, value, color, sub, help }: { label: string; value?: number; color: string; sub: string; help: string }) {
   return (
     <div className="glass-panel rounded-xl p-4">
-      <div className="text-[11px] uppercase tracking-wider text-slate-500 flex items-center gap-1">
+      <div className="text-xs uppercase tracking-wider text-muted flex items-center gap-1">
         {label} <MetricHelp term={help} />
       </div>
-      <div className={`text-2xl font-bold mt-1 ${value != null ? color : 'text-slate-400'}`}>
+      <div className={`text-2xl font-bold mt-1 ${value != null ? color : 'text-muted'}`}>
         {value != null ? `$${value.toFixed(2)}` : '—'}
       </div>
-      <div className="text-[10px] text-slate-500 mt-0.5">{sub}</div>
+      <div className="text-xs text-muted mt-0.5">{sub}</div>
     </div>
   );
 }
@@ -830,8 +830,8 @@ function LevelCard({ label, value, color, sub, help }: { label: string; value?: 
 function FundStat({ label, value, help }: { label: string; value: string; help: string }) {
   return (
     <div>
-      <div className="text-slate-500 flex items-center gap-1">{label} <MetricHelp term={help} /></div>
-      <div className="text-slate-400 font-semibold">{value}</div>
+      <div className="text-muted flex items-center gap-1">{label} <MetricHelp term={help} /></div>
+      <div className="text-muted font-semibold">{value}</div>
     </div>
   );
 }

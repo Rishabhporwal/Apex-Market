@@ -131,8 +131,8 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-bold font-mono tracking-tight text-slate-900">{symbol}</h1>
-              <span className="text-sm text-slate-500 font-sans">{quote?.name || 'Equity Corporation'}</span>
-              <span className="rounded bg-slate-50 px-2 py-0.5 text-[11px] font-mono text-slate-500 border border-slate-300">
+              <span className="text-sm text-muted font-sans">{quote?.name || 'Equity Corporation'}</span>
+              <span className="rounded bg-slate-50 px-2 py-0.5 text-xs font-mono text-muted border border-slate-300">
                 {quote?.exchange || 'NASDAQ'}
               </span>
             </div>
@@ -161,7 +161,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
         {technicalSummary && (
           <div className="flex items-center gap-4 border-l border-slate-200 pl-4 sm:pl-6">
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">Quant Signal</div>
+              <div className="text-xs uppercase font-semibold text-muted tracking-wider">Quant Signal</div>
               <div
                 className={`mt-1 inline-flex items-center px-3 py-1 rounded-full text-xs font-mono font-bold border ${getSignalBadgeColor(
                   technicalSummary.overallSignal
@@ -172,16 +172,16 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             </div>
 
             <div>
-              <div className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">RSI (14)</div>
+              <div className="text-xs uppercase font-semibold text-muted tracking-wider">RSI (14)</div>
               <div className="mt-1 flex items-center gap-1.5 font-mono text-xs">
                 <span className="font-bold text-slate-900">{technicalSummary.rsi14.toFixed(1)}</span>
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  className={`text-xs px-1.5 py-0.5 rounded ${
                     technicalSummary.rsiCondition === 'OVERBOUGHT'
                       ? 'bg-rose-50 text-rose-600'
                       : technicalSummary.rsiCondition === 'OVERSOLD'
                       ? 'bg-emerald-50 text-emerald-600'
-                      : 'bg-slate-50 text-slate-400'
+                      : 'bg-slate-50 text-muted'
                   }`}
                 >
                   {technicalSummary.rsiCondition}
@@ -190,12 +190,12 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             </div>
 
             <div className="hidden md:block">
-              <div className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider">Trend Setup</div>
-              <div className="mt-1 flex gap-1 font-mono text-[11px]">
-                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendShortTerm === 'BULLISH' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-500 bg-slate-50'}`}>
+              <div className="text-xs uppercase font-semibold text-muted tracking-wider">Trend Setup</div>
+              <div className="mt-1 flex gap-1 font-mono text-xs">
+                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendShortTerm === 'BULLISH' ? 'text-emerald-600 bg-emerald-50' : 'text-muted bg-slate-50'}`}>
                   Short: {technicalSummary.trendShortTerm}
                 </span>
-                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendLongTerm === 'BULLISH' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-500 bg-slate-50'}`}>
+                <span className={`px-1.5 py-0.5 rounded ${technicalSummary.trendLongTerm === 'BULLISH' ? 'text-emerald-600 bg-emerald-50' : 'text-muted bg-slate-50'}`}>
                   Long: {technicalSummary.trendLongTerm}
                 </span>
               </div>
@@ -216,8 +216,8 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                 onClick={() => setTimeframe(tf)}
                 className={`px-3 py-1.5 rounded-lg font-medium transition ${
                   timeframe === tf
-                    ? 'bg-slate-900 text-white font-bold'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                    ? 'bg-accent text-white font-bold'
+                    : 'text-muted hover:text-slate-900 hover:bg-slate-50'
                 }`}
               >
                 {tf.toUpperCase()}
@@ -231,13 +231,13 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             <div className="flex items-center bg-white p-1 rounded-xl border border-slate-200">
               <button
                 onClick={() => setChartType('candles')}
-                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'candles' ? 'bg-slate-50 text-cyan-600 font-bold' : 'text-slate-500'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'candles' ? 'bg-slate-50 text-cyan-600 font-bold' : 'text-muted'}`}
               >
                 Candles
               </button>
               <button
                 onClick={() => setChartType('line')}
-                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'line' ? 'bg-slate-50 text-cyan-600 font-bold' : 'text-slate-500'}`}
+                className={`px-2.5 py-1 rounded-lg transition ${chartType === 'line' ? 'bg-slate-50 text-cyan-600 font-bold' : 'text-muted'}`}
               >
                 Area Line
               </button>
@@ -247,19 +247,19 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 font-mono">
               <button
                 onClick={() => setShowSMA20(!showSMA20)}
-                className={`px-2 py-1 rounded transition text-[11px] ${showSMA20 ? 'bg-amber-50 text-amber-600 font-semibold border border-amber-200' : 'text-slate-500'}`}
+                className={`px-2 py-1 rounded transition text-xs ${showSMA20 ? 'bg-amber-50 text-amber-600 font-semibold border border-amber-200' : 'text-muted'}`}
               >
                 SMA 20
               </button>
               <button
                 onClick={() => setShowSMA50(!showSMA50)}
-                className={`px-2 py-1 rounded transition text-[11px] ${showSMA50 ? 'bg-blue-50 text-blue-600 font-semibold border border-blue-200' : 'text-slate-500'}`}
+                className={`px-2 py-1 rounded transition text-xs ${showSMA50 ? 'bg-blue-50 text-blue-600 font-semibold border border-blue-200' : 'text-muted'}`}
               >
                 SMA 50
               </button>
               <button
                 onClick={() => setShowBollinger(!showBollinger)}
-                className={`px-2 py-1 rounded transition text-[11px] ${showBollinger ? 'bg-purple-50 text-purple-600 font-semibold border border-purple-200' : 'text-slate-500'}`}
+                className={`px-2 py-1 rounded transition text-xs ${showBollinger ? 'bg-purple-50 text-purple-600 font-semibold border border-purple-200' : 'text-muted'}`}
               >
                 BBands
               </button>
@@ -271,10 +271,10 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
                 <button
                   key={ind}
                   onClick={() => setSubIndicator(ind)}
-                  className={`px-2.5 py-1 rounded-lg uppercase text-[11px] transition ${
+                  className={`px-2.5 py-1 rounded-lg uppercase text-xs transition ${
                     subIndicator === ind
                       ? 'bg-slate-50 text-cyan-600 font-bold border border-slate-300'
-                      : 'text-slate-500 hover:text-slate-400'
+                      : 'text-muted hover:text-muted'
                   }`}
                 >
                   {ind}
@@ -285,7 +285,7 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
             {onRefresh && (
               <button
                 onClick={onRefresh}
-                className="p-1.5 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-slate-900 transition"
+                className="p-1.5 rounded-xl bg-white border border-slate-200 text-muted hover:text-slate-900 transition"
                 title="Refresh Market Data"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -297,35 +297,35 @@ export function StockChart({ symbol, quote, onRefresh }: StockChartProps) {
         {/* OHLCV Live Tooltip Bar */}
         {activeCandle && (
           <div className="flex flex-wrap items-center gap-4 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono mb-2">
-            <span className="text-slate-500">
-              Date: <strong className="text-slate-400">{activeCandle.time}</strong>
+            <span className="text-muted">
+              Date: <strong className="text-muted">{activeCandle.time}</strong>
             </span>
-            <span className="text-slate-500">
-              O: <strong className="text-slate-400">${activeCandle.open.toFixed(2)}</strong>
+            <span className="text-muted">
+              O: <strong className="text-muted">${activeCandle.open.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-500">
+            <span className="text-muted">
               H: <strong className="text-emerald-600">${activeCandle.high.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-500">
+            <span className="text-muted">
               L: <strong className="text-rose-600">${activeCandle.low.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-500">
+            <span className="text-muted">
               C: <strong className="text-slate-900">${activeCandle.close.toFixed(2)}</strong>
             </span>
-            <span className="text-slate-500">
-              Vol: <strong className="text-slate-400">{(activeCandle.volume / 1e6).toFixed(2)}M</strong>
+            <span className="text-muted">
+              Vol: <strong className="text-muted">{(activeCandle.volume / 1e6).toFixed(2)}M</strong>
             </span>
           </div>
         )}
 
         {/* Main Price Chart Render */}
         {loading ? (
-          <div className="h-[460px] flex items-center justify-center text-slate-500 font-mono">
+          <div className="h-[460px] flex items-center justify-center text-muted font-mono">
             <RefreshCw className="h-6 w-6 animate-spin mr-2 text-cyan-600" />
             Loading high-resolution market data...
           </div>
         ) : candles.length === 0 ? (
-          <div className="h-[460px] flex items-center justify-center text-slate-500 font-mono">
+          <div className="h-[460px] flex items-center justify-center text-muted font-mono">
             No chart data available for this timeframe.
           </div>
         ) : (

@@ -146,14 +146,14 @@ export default function Home() {
       </main>
 
       {/* Global Footer */}
-      <footer className="relative z-10 border-t border-slate-200 bg-white py-4 px-6 text-xs font-mono text-slate-400">
+      <footer className="relative z-10 border-t border-slate-200 bg-white py-4 px-6 text-xs font-mono text-muted">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5 text-emerald-600">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Services Healthy (9/9 Active)</span>
             </span>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted">|</span>
             <span>AI Master Prediction • Market Data Engine • Financial Modeling • Sentiment AI • SEC EDGAR • Quant Backtester</span>
           </div>
           <div>
