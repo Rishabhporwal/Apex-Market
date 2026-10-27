@@ -387,13 +387,6 @@ function filtersFromQuery(q) {
     maxPe: numOrUndef(q.maxPe),
     minDividendYield: numOrUndef(q.minDividendYield),
     maxDividendYield: numOrUndef(q.maxDividendYield),
-    // Named presets (e.g. ?preset=quality) expand into their filter params so
-    // preset screens differ from the unfiltered universe. Mirrors
-    // src/services/screenerService.ts PRESETS.
-    ...(q.preset === 'quality' ? { minRevenueGrowth: 10, minNetMargin: 10, minRoe: 12 } : {}),
-    ...(q.preset === 'value' ? { maxPe: 18, minNetMargin: 8 } : {}),
-    ...(q.preset === 'dividend' ? { minDividendYield: 2 } : {}),
-    ...(q.preset === 'mega' ? { minMarketCap: 100_000_000_000 } : {}),
     minRevenueGrowth: numOrUndef(q.minRevenueGrowth),
     minNetMargin: numOrUndef(q.minNetMargin),
     minRoe: numOrUndef(q.minRoe),
@@ -402,8 +395,20 @@ function filtersFromQuery(q) {
   };
 }
 
+// Named presets (?preset=quality|value|dividend|mega) fill ONLY missing keys —
+// mirrors src/services/screenerService.ts PRESETS. Explicit query params win.
+const PRESET_DEFAULTS = {
+  quality: { minRevenueGrowth: 10, minNetMargin: 10, minRoe: 12 },
+  value: { maxPe: 18, minNetMargin: 8 },
+  dividend: { minDividendYield: 2 },
+  mega: { minMarketCap: 100_000_000_000 },
+};
+
 app.get('/screener', async (req) => {
   const filters = filtersFromQuery(req.query);
+  for (const [k, v] of Object.entries(PRESET_DEFAULTS[req.query.preset] || {})) {
+    if (filters[k] === undefined) filters[k] = v;
+  }
   const { warehouseReady, results } = await getScreenerResults(filters);
   return { warehouseReady, count: results.length, filters, results };
 });
