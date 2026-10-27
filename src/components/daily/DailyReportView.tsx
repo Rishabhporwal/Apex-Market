@@ -81,24 +81,47 @@ export function DailyReportView({ onSelectSymbol }: { onSelectSymbol: (sym: stri
   const runNow = async () => {
     setRunning(true);
     setRunError(null);
+    // A full run takes several minutes — longer than the gateway proxy timeout —
+    // so the POST can be aborted server-side even though the run completes.
+    // After starting (or colliding with) a run, POLL the report until today's
+    // fresh results show up instead of depending on the POST response.
+    const watchRun = async () => {
+      for (let i = 0; i < 60; i++) { // up to ~12 min
+        await new Promise((r) => setTimeout(r, 12000));
+        try {
+          const r = await fetch('/api/daily-report');
+          if (r.ok) {
+            const d = await r.json();
+            if (d.isToday && (d.count > 0 || d.results?.length > 0)) {
+              setReport(d);
+              setRunning(false);
+              return;
+            }
+          }
+        } catch { /* transient — keep watching */ }
+      }
+      setRunning(false);
+      setRunError('The run is taking unusually long. It may still be finishing — refresh in a minute.');
+    };
     try {
       // send a minimal JSON body — an empty body with content-type json makes
       // Fastify downstream reject with FST_ERR_CTP_EMPTY_JSON_BODY
       const res = await fetch('/api/daily-report', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-      if (res.ok) setReport(await res.json());
-      else {
-        const body = await res.json().catch(() => ({}));
-        const friendly: Record<number, string> = {
-          409: 'A run is already in progress — it usually takes a few minutes. The results will appear here when it finishes.',
-          502: "Couldn't reach the research services. Check that the platform (gateway) is running, then try again.",
-          504: 'The run took too long to acknowledge, but it may still be finishing server-side — check back in a few minutes.',
-        };
-        setRunError(friendly[res.status] || body.error || `Run failed (${res.status})`);
+      if (res.ok) {
+        setReport(await res.json());
+        setRunning(false);
+        return;
       }
-    } catch {
-      setRunError('Could not reach the research service');
-    } finally {
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409 || res.status === 504) { await watchRun(); return; }
+      const friendly: Record<number, string> = {
+        502: "Couldn't reach the research services. Check that the platform (gateway) is running, then try again.",
+      };
+      setRunError(friendly[res.status] || body.error || `Run failed (${res.status})`);
       setRunning(false);
+    } catch {
+      // aborted/timed-out request — the run itself usually continues server-side
+      await watchRun();
     }
   };
 
